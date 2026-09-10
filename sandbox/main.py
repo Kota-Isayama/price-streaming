@@ -2,7 +2,7 @@ import asyncio
 import datetime
 from decimal import Decimal
 
-from request_for_quote.application.pricing.worker import PricingWorker
+from request_for_quote.application.pricing.runner import PricingWorker
 from request_for_quote.domain.market.market import MarketDataValue, MarketState
 from request_for_quote.domain.pricing.request import SwapPricingRequest
 from request_for_quote.domain.pricing.swap_pricer import JPY_OIS, SwapPricer

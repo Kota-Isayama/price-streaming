@@ -53,3 +53,12 @@ class MarketState:
         }
 
         return MarketSnapshot(values=values)
+
+    def contains_all(
+            self,
+            market_data_ids: set[MarketDataId],
+        ) -> bool:
+            return all(
+                market_data_id in self._values
+                for market_data_id in market_data_ids
+            )
