@@ -45,21 +45,35 @@ HandleMarketDataUpdateUseCase.execute()
 
 
 import asyncio
+from datetime import date
+from decimal import Decimal
+
+from aiokafka import AIOKafkaConsumer
 
 from request_for_quote.application.port.pricing_lifecycle_subscriber import IPricingLifecycleSubscriber
+from request_for_quote.application.port.pricing_request_loader import LoadedPricingRequest
 from request_for_quote.application.pricing.lifecycle import PricingActivated, PricingChanged, PricingStopped
 from request_for_quote.application.pricing.use_case.activate_pricing import ActivatePricingSessionUseCase
 from request_for_quote.application.pricing.use_case.change_pricing import ChangePricingUseCase
 from request_for_quote.application.pricing.use_case.handle_market_data_update import HandleMarketDataUpdateUseCase
 from request_for_quote.application.pricing.use_case.stop_pricing import StopPricingUseCase
-from request_for_quote.domain.market.market import MarketState
+from request_for_quote.domain.market.market import MarketDataId, MarketState
 from request_for_quote.domain.pricing.request import SwapPricingRequest
 from request_for_quote.domain.pricing.swap_pricer import JPY_OIS, SwapPricer
 from request_for_quote.domain.product.shared import Currency
 from request_for_quote.domain.product.swap import InterestRateSwap, PayReceive
 from request_for_quote.infrastructure.application.adapter.market_data_subscriber.zeromq_market_data_subscriber import ZeroMqMarketDataSubscriber
 from request_for_quote.infrastructure.application.adapter.pricing_lifecycle_subscriber.kafka_pricing_lifecycle_subscriber import KafkaPricingLifecycleSubscriber
+from request_for_quote.infrastructure.application.adapter.pricing_request_loader.in_memory import InMemoryPricingRequestLoader
 from request_for_quote.infrastructure.application.adapter.pricing_session_store.in_memory_pricing_session_store import InMemoryPricingSessionStore
+from request_for_quote.infrastructure.domain.pricing_request.repository.sql_alchemy_repository import SqlAlchemyPricingRequestRepository
+from request_for_quote.infrastructure.postgres.base import create_engine, create_session_maker
+
+
+DATABASE_URL = (
+    "postgresql+asyncpg://"
+    "postgres:postgres@localhost:5432/request_for_quote"
+)
 
 
 async def consume_market_data(
@@ -84,11 +98,12 @@ async def consume_pricing_request_lifecycle(
         match event:
             case PricingActivated():
                 await activate_use_case.execute(
-                    ...,
+                    event.request_id,
+                    event.revision,
                 )
 
             case PricingChanged():
-                change_use_case.execute(
+                await change_use_case.execute(
                     request_id=event.request_id,
                     revision=event.revision,
                 )
@@ -99,7 +114,7 @@ async def consume_pricing_request_lifecycle(
                 )
 
         # UseCaseが例外なく完了してからack
-        subscriber.ack()
+        await subscriber.ack()
 
 
 async def main() -> None:
@@ -112,6 +127,11 @@ async def main() -> None:
         InMemoryPricingSessionStore()
     )
 
+    engine = create_engine(DATABASE_URL)
+    session_maker = create_session_maker(engine)
+
+    pricing_request_repository = SqlAlchemyPricingRequestRepository(session=session_maker())
+
     #
     # Domain services
     #
@@ -123,6 +143,7 @@ async def main() -> None:
     activate_rfq_pricing = (
         ActivatePricingSessionUseCase(
             session_store=session_store,
+            request_repository=pricing_request_repository,
             market_state=market_state,
             pricer=pricer,
         )
@@ -131,6 +152,7 @@ async def main() -> None:
     change_pricing = (
         ChangePricingUseCase(
             session_store=session_store,
+            request_repository=pricing_request_repository,
             market_state=market_state,
             pricer=pricer,
         )
@@ -161,9 +183,12 @@ async def main() -> None:
     )
 
     pricing_lifecycle_subscriber = KafkaPricingLifecycleSubscriber(
-        topic="pricing-lifecycle",
-        bootstrap_servers="localhost:9092",
-        group_id="pricing-workers",
+        consumer=AIOKafkaConsumer(
+            "rfq-pricing-lifecycle",
+            bootstrap_servers="localhost:9092",
+            group_id="pricing-workers",
+            auto_offset_reset="earliest",
+        ),
     )
 
     async with asyncio.TaskGroup() as task_group:

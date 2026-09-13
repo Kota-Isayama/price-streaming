@@ -1,7 +1,9 @@
+from request_for_quote.application.port.pricing_request_loader import IPricingRequestLoader
 from request_for_quote.application.port.pricing_session_store import IPricingSessionStore
 from request_for_quote.application.pricing.session import PricingSession
 from request_for_quote.domain.market.market import MarketDataId, MarketState
 from request_for_quote.domain.pricing.request import SwapPricingRequest
+from request_for_quote.domain.pricing.request_repository import IPricingRequestRepository
 from request_for_quote.domain.pricing.swap_pricer import SwapPricer
 
 
@@ -9,18 +11,32 @@ class ActivatePricingSessionUseCase:
     def __init__(
         self,
         session_store: IPricingSessionStore,
+        request_repository: IPricingRequestRepository,
         market_state: MarketState,
         pricer: SwapPricer,
     ) -> None:
         self._session_store = session_store
+        self._request_repository = request_repository
         self._market_state = market_state
         self._pricer = pricer
 
     async def execute(
         self,
-        request: SwapPricingRequest,
-        dependencies: set[MarketDataId],
+        request_id: str,
+        revision: int,
     ) -> None:
+        loaded = await self._request_repository.get_by_id_and_revision(request_id=request_id, revision=revision)
+
+        if loaded is None:
+            print(
+                f"[WARNING] "
+                f"pricing_request={request_id} was not found."
+            )
+            return
+
+        request = loaded
+        dependencies = {MarketDataId("JPY-OIS")}  # TODO: Dependenciesをちゃんと管理する。
+
         session = PricingSession(
             request=request,
             dependencies=dependencies,

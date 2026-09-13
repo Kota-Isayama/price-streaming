@@ -1,0 +1,127 @@
+services:
+  postgres:
+    image: postgres:18
+    hostname: postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: request_for_quote
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U postgres -d request_for_quote",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: pgadmin
+    restart: unless-stopped
+
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@example.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+
+    ports:
+      - "5050:80"
+
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+
+    depends_on:
+      - postgres
+  kafka:
+    image: apache/kafka:4.2.0
+    hostname: kafka
+    ports:
+      - "9092:9092"
+
+    environment:
+      # KRaft: single node = broker + controller
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+
+      # listeners
+      KAFKA_LISTENERS: >-
+        CONTROLLER://:29093,
+        INTERNAL://:19092,
+        EXTERNAL://:9092
+
+      KAFKA_ADVERTISED_LISTENERS: >-
+        INTERNAL://kafka:19092,
+        EXTERNAL://localhost:9092
+
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: >-
+        CONTROLLER:PLAINTEXT,
+        INTERNAL:PLAINTEXT,
+        EXTERNAL:PLAINTEXT
+
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+
+      KAFKA_CONTROLLER_QUORUM_VOTERS: >-
+        1@kafka:29093
+
+      CLUSTER_ID: "4L6g3nShT-eMCtK--X86sw"
+
+      # single broker development settings
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+
+      KAFKA_SHARE_COORDINATOR_STATE_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_SHARE_COORDINATOR_STATE_TOPIC_MIN_ISR: 1
+
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+
+      KAFKA_LOG_DIRS: /tmp/kraft-combined-logs
+
+    # volumes:
+    #   - kafka-price-streaming-data:/tmp/kraft-combined-logs
+
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null 2>&1",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  kafka-init:
+    image: apache/kafka:4.2.0
+
+    depends_on:
+      kafka:
+        condition: service_healthy
+
+    entrypoint:
+      - /bin/bash
+      - -c
+      - |
+        set -e
+
+        /opt/kafka/bin/kafka-topics.sh \
+          --bootstrap-server kafka:19092 \
+          --create \
+          --if-not-exists \
+          --topic rfq-pricing-lifecycle \
+          --partitions 4 \
+          --replication-factor 1
+
+        /opt/kafka/bin/kafka-topics.sh \
+          --bootstrap-server kafka:19092 \
+          --describe \
+          --topic rfq-pricing-lifecycle
+
+volumes:
+  postgres-data:
+  pgadmin_data:

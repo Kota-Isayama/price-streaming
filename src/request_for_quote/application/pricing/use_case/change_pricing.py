@@ -1,5 +1,7 @@
+from request_for_quote.application.port.pricing_request_loader import IPricingRequestLoader
 from request_for_quote.application.port.pricing_session_store import IPricingSessionStore
-from request_for_quote.domain.market.market import MarketState
+from request_for_quote.domain.market.market import MarketDataId, MarketState
+from request_for_quote.domain.pricing.request_repository import IPricingRequestRepository
 from request_for_quote.domain.pricing.swap_pricer import SwapPricer
 
 
@@ -7,12 +9,12 @@ class ChangePricingUseCase:
     def __init__(
         self,
         session_store: IPricingSessionStore,
-        request_loader: PricingRequestLoader,
+        request_repository: IPricingRequestRepository,
         market_state: MarketState,
         pricer: SwapPricer,
     ) -> None:
         self._session_store = session_store
-        self._request_loader = request_loader
+        self._request_repository = request_repository
         self._market_state = market_state
         self._pricer = pricer
 
@@ -35,13 +37,13 @@ class ChangePricingUseCase:
         if revision <= session.request.revision:
             return
 
-        loaded = await self._request_loader.load(
+        loaded = await self._request_repository.get_by_id_and_revision(
             request_id,
             revision=revision,
         )
 
-        session.request = loaded.request
-        session.dependencies = loaded.dependencies
+        session = session.with_new_request(loaded)
+        session = session.with_new_dependencies({MarketDataId("JPY-OIS")})
 
         self._session_store.save(session)
 
