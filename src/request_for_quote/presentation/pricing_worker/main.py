@@ -66,7 +66,9 @@ from request_for_quote.domain.pricing.swap_pricer import JPY_OIS, SwapPricer
 from request_for_quote.domain.product.shared import Currency
 from request_for_quote.domain.product.swap import InterestRateSwap, PayReceive
 from request_for_quote.infrastructure.application.adapter.market_data_subscriber.zeromq_market_data_subscriber import ZeroMqMarketDataSubscriber
-from request_for_quote.infrastructure.application.adapter.pricing_lifecycle_subscriber.kafka_pricing_lifecycle_subscriber import KafkaPricingLifecycleSubscriber
+from request_for_quote.infrastructure.application.adapter.pricing_lifecycle_subscriber.kafka.kafka_pricing_lifecycle_subscriber import KafkaPricingLifecycleSubscriber
+from request_for_quote.infrastructure.application.adapter.pricing_lifecycle_subscriber.kafka.pricing_partition_router import KafkaPricingPartitionRouter
+from request_for_quote.infrastructure.application.adapter.pricing_lifecycle_subscriber.kafka.pricing_rebalance_listener import PricingRebalanceListener
 from request_for_quote.infrastructure.application.adapter.pricing_session_store.in_memory_pricing_session_store import InMemoryPricingSessionRegistry
 from request_for_quote.infrastructure.application.pricing.adapter.sql_alchemy_pricing_session_store import SqlAlchemyPricingSessionStore
 from request_for_quote.infrastructure.application.pricing.adapter.sql_alchemy_pricing_session_unit_of_work import SqlAlchemyPricingSessionUnitOfWork
@@ -78,6 +80,8 @@ DATABASE_URL = (
     "postgresql+asyncpg://"
     "postgres:postgres@localhost:5432/request_for_quote"
 )
+
+PRICING_LIFECYCLE_TOPIC = "rfq-pricing-lifecycle"
 
 
 async def restore_active_sessions(
@@ -201,13 +205,27 @@ async def main() -> None:
         )
     )
 
+    consumer=AIOKafkaConsumer(
+        PRICING_LIFECYCLE_TOPIC,
+        bootstrap_servers="localhost:9092",
+        group_id="pricing-workers",
+        auto_offset_reset="earliest",
+    )
+
+    partition_router = KafkaPricingPartitionRouter()
+
+    rebalance_listener = PricingRebalanceListener(
+        topic=PRICING_LIFECYCLE_TOPIC,
+        all_partitions={0, 1, 2, 3},
+        session_uow_factory=lambda: pricing_session_uow,
+        session_registry=session_registry,
+        partition_router=partition_router,
+    )
+
+    consumer.subscribe(topics=[PRICING_LIFECYCLE_TOPIC], listener=rebalance_listener) # 何をしている？？
+
     pricing_lifecycle_subscriber = KafkaPricingLifecycleSubscriber(
-        consumer=AIOKafkaConsumer(
-            "rfq-pricing-lifecycle",
-            bootstrap_servers="localhost:9092",
-            group_id="pricing-workers",
-            auto_offset_reset="earliest",
-        ),
+        consumer=consumer,
     )
 
     await restore_active_sessions(pricing_session_uow, session_registry)
