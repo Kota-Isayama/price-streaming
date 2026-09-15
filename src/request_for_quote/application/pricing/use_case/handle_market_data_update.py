@@ -1,4 +1,4 @@
-from request_for_quote.application.port.pricing_session_store import IPricingSessionStore
+from request_for_quote.application.port.pricing_session_registry import IPricingSessionRegistry
 from request_for_quote.domain.market.market import MarketDataId, MarketDataValue, MarketState
 from request_for_quote.domain.pricing.swap_pricer import SwapPricer
 
@@ -6,7 +6,7 @@ from request_for_quote.domain.pricing.swap_pricer import SwapPricer
 class HandleMarketDataUpdateUseCase:
     def __init__(
         self,
-        session_store: IPricingSessionStore,
+        session_store: IPricingSessionRegistry,
         market_state: MarketState,
         pricer: SwapPricer,
     ) -> None:
@@ -50,4 +50,3 @@ class HandleMarketDataUpdateUseCase:
                 f"request={session.request.request_id} "
                 f"par_rate={price.par_rate}"
             )
-            

@@ -1,8 +1,8 @@
-from request_for_quote.application.port.pricing_session_store import IPricingSessionStore
+from request_for_quote.application.port.pricing_session_registry import IPricingSessionRegistry
 from request_for_quote.application.pricing.session import PricingSession
 
 
-class InMemoryPricingSessionStore(IPricingSessionStore):
+class InMemoryPricingSessionRegistry(IPricingSessionRegistry):
     def __init__(self):
         self._sessions: dict[str, PricingSession] = {}
 

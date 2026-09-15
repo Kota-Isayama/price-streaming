@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Integer, String
+from sqlalchemy import ARRAY, Boolean, DateTime, Integer, String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -72,3 +72,12 @@ class OutboxEventOrm(Base):
     )
     published: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class PricingSessionOrm(Base):
+    __tablename__ = "pricing_sessions"
+
+    request_id: Mapped[str] = mapped_column(primary_key=True)
+    request: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    status: Mapped[str] = mapped_column(nullable=False)
+    dependencies: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False)

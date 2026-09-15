@@ -3,7 +3,7 @@ import abc
 from request_for_quote.application.pricing.session import PricingSession
 
 
-class IPricingSessionStore(abc.ABC):
+class IPricingSessionRegistry(abc.ABC):
     @abc.abstractmethod
     def get(self, request_id: str) -> PricingSession | None:
         raise NotImplementedError

@@ -1,5 +1,5 @@
 from request_for_quote.application.port.pricing_request_loader import IPricingRequestLoader
-from request_for_quote.application.port.pricing_session_store import IPricingSessionStore
+from request_for_quote.application.port.pricing_session_registry import IPricingSessionRegistry
 from request_for_quote.domain.market.market import MarketDataId, MarketState
 from request_for_quote.domain.pricing.request_repository import IPricingRequestRepository
 from request_for_quote.domain.pricing.swap_pricer import SwapPricer
@@ -8,7 +8,7 @@ from request_for_quote.domain.pricing.swap_pricer import SwapPricer
 class ChangePricingUseCase:
     def __init__(
         self,
-        session_store: IPricingSessionStore,
+        session_store: IPricingSessionRegistry,
         request_repository: IPricingRequestRepository,
         market_state: MarketState,
         pricer: SwapPricer,
