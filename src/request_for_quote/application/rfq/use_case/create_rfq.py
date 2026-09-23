@@ -1,20 +1,24 @@
 from datetime import date, datetime, timezone
 from decimal import Decimal
+from typing import Callable
 import uuid
 
-from request_for_quote.application.port.outbox_repository import OutboxEvent
-from request_for_quote.domain.pricing.request import SwapPricingRequest
+from request_for_quote.application.domain_event_dispatcher import DomainEventDispatcher
+from request_for_quote.application.rfq.unit_of_work import IRfqUnitOfWork
 from request_for_quote.domain.product.shared import Currency
 from request_for_quote.domain.product.swap import InterestRateSwap, PayReceive
 from request_for_quote.domain.request_for_quote.request_for_quote import RequestForQuote
+from request_for_quote.domain.shared.aware_datetime import AwareDateTime
 
 
 class CreateRfqUseCase:
     def __init__(
         self,
-        uow_factory,
+        uow_factory: Callable[[], IRfqUnitOfWork],
+        domain_event_dispatcher: DomainEventDispatcher,
     ) -> None:
         self._uow_factory = uow_factory
+        self._domain_event_dispatcher = domain_event_dispatcher
 
     async def execute(
         self,
@@ -24,8 +28,11 @@ class CreateRfqUseCase:
         maturity_date: date,
         fixed_leg: str,
         currency: Currency,
+        assigned_trader: str,
+        registered_by: str,
     ) -> str:
         rfq_id = str(uuid.uuid4())
+        now = AwareDateTime.now()
 
         swap = InterestRateSwap(
             notional=notional,
@@ -37,37 +44,22 @@ class CreateRfqUseCase:
             currency=currency,
         )
 
-        rfq = RequestForQuote(
+        rfq = RequestForQuote.register(
             rfq_id=rfq_id,
-            revision=1,
             product=swap,
-        )
-
-        pricing_request = SwapPricingRequest(
-            request_id=rfq.rfq_id,
-            revision=rfq.revision,
-            product=swap,
-        )
-
-
-        event = OutboxEvent(
-            event_id=str(uuid.uuid4()),
-            event_type="rfq_pricing_activated",
-            payload={
-                "rfq_id": rfq.rfq_id,
-                "revision": rfq.revision,
-            },
-            created_at=datetime.now(timezone.utc),
+            assigned_trader=assigned_trader,
+            registered_by=registered_by,
+            occurred_at=now,
         )
 
         async with self._uow_factory() as uow:
-            await uow.rfqs.save(rfq)
+            await uow.get_rfq_repository().save(rfq)
 
-            await uow.pricing_requests.save(
-                pricing_request
-            )
-
-            await uow.outbox.add(event)
+            for domain_event in rfq.pull_domain_events():
+                await self._domain_event_dispatcher.dispatch(
+                    domain_event,
+                    uow=uow,
+                )
 
             await uow.commit()
 

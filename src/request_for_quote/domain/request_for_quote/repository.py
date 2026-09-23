@@ -11,4 +11,8 @@ class IRfqRepository(abc.ABC):
     @abc.abstractmethod
     async def get_by_id(self, rfq_id: str) -> RequestForQuote | None:
         raise NotImplementedError
+
+    @abc.abstractmethod
+    async def list_all(self) -> list[RequestForQuote]:
+        raise NotImplementedError
     

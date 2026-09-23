@@ -113,7 +113,7 @@ services:
           --bootstrap-server kafka:19092 \
           --create \
           --if-not-exists \
-          --topic rfq-pricing-lifecycle \
+          --topic rfq-domain-events \
           --partitions 4 \
           --replication-factor 1
 
@@ -121,7 +121,14 @@ services:
           --bootstrap-server kafka:19092 \
           --describe \
           --topic rfq-pricing-lifecycle
-
+  
+  redis:
+    image: redis:7
+    container_name: rfq-redis
+    ports:
+    - "6379:6379"
+    restart: unless-stopped
+    
 volumes:
   postgres-data:
   pgadmin_data:

@@ -52,9 +52,6 @@ class SqlAlchemyUnitOfWork(IRfqUnitOfWork):
     def get_rfq_repository(self):
         return self.rfqs
 
-    def get_pricing_request_repository(self):
-        return self.pricing_requests
-
     def get_outbox_repository(self):
         return self.outbox
     

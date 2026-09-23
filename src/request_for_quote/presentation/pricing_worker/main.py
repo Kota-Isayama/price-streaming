@@ -7,28 +7,40 @@
 │      ↓                           │
 │ HandleMarketDataUpdateUseCase    │
 │                                  │
-│ RFQ Lifecycle Consumer           │
+│ RFQ Domain Event Consumer        │
 │      ↓                           │
 │ ActivateRfqPricingUseCase        │
 │ StopRfqPricingUseCase            │
 │                                  │
 └──────────────────────────────────┘
 
-Market message #1
-    ↓
-HandleMarketDataUpdateUseCase.execute()
+                           外部世界
 
-Market message #2
-    ↓
-HandleMarketDataUpdateUseCase.execute()
+ZeroMQ Market Data
+        │
+        ▼
+ZeroMqMarketDataSubscriber
+        │
+        ▼
+HandleMarketDataUpdateUseCase
 
-RfqActivated message
-    ↓
-ActivateRfqPricingUseCase.execute()
 
-Market message #3
-    ↓
-HandleMarketDataUpdateUseCase.execute()
+Kafka rfq-domain-events
+        │
+        ▼
+KafkaRfqDomainEventsSubscriber
+        │
+        ├─ RfqRegistered
+        │       ↓
+        │  HandleRfqRegisteredForPricingUseCase
+        │
+        ├─ RfqChanged
+        │       ↓
+        │  HandleRfqChangedForPricingUseCase
+        │
+        └─ RfqStopped
+                ↓
+           HandleRfqStoppedForPricingUseCase
 このように、実行時には、MQなどを通じて入力されるイベントに対して一つのUseCaseが実行される。
 
 構造は通常のWebAPIと全く同様である。
@@ -44,36 +56,70 @@ HandleMarketDataUpdateUseCase.execute()
 """
 
 
+"""Pricing Worker Process Host / Composition Root.
+
+Inbound adapters:
+
+    ZeroMQ Market Data
+            ↓
+    HandleMarketDataUpdateUseCase
+
+    Kafka RFQ Domain Events
+            ↓
+    RfqRegisteredIntegrationEvent
+            ↓
+    HandleRfqRegisteredForPricingUseCase
+
+    RfqChangedIntegrationEvent
+            ↓
+    HandleRfqChangedForPricingUseCase
+
+    RfqStoppedIntegrationEvent
+            ↓
+    HandleRfqStoppedForPricingUseCase
+"""
+
 import asyncio
-from datetime import date
-from decimal import Decimal
 
 from aiokafka import AIOKafkaConsumer
+import redis.asyncio as redis
 
-from request_for_quote.application.port.pricing_lifecycle_subscriber import IPricingLifecycleSubscriber
-from request_for_quote.application.port.pricing_request_loader import LoadedPricingRequest
-from request_for_quote.application.port.pricing_session_registry import IPricingSessionRegistry
-from request_for_quote.application.pricing.lifecycle import PricingActivated, PricingChanged, PricingStopped
-from request_for_quote.application.pricing.port.pricing_session_store import IPricingSessionStore
-from request_for_quote.application.pricing.port.pricing_session_unit_of_work import IPricingSessionUnitOfWork
-from request_for_quote.application.pricing.use_case.activate_pricing import ActivatePricingSessionUseCase
-from request_for_quote.application.pricing.use_case.change_pricing import ChangePricingUseCase
-from request_for_quote.application.pricing.use_case.handle_market_data_update import HandleMarketDataUpdateUseCase
-from request_for_quote.application.pricing.use_case.stop_pricing import StopPricingUseCase
-from request_for_quote.domain.market.market import MarketDataId, MarketState
-from request_for_quote.domain.pricing.request import SwapPricingRequest
-from request_for_quote.domain.pricing.swap_pricer import JPY_OIS, SwapPricer
-from request_for_quote.domain.product.shared import Currency
-from request_for_quote.domain.product.swap import InterestRateSwap, PayReceive
-from request_for_quote.infrastructure.application.adapter.market_data_subscriber.zeromq_market_data_subscriber import ZeroMqMarketDataSubscriber
-from request_for_quote.infrastructure.application.adapter.pricing_lifecycle_subscriber.kafka.kafka_pricing_lifecycle_subscriber import KafkaPricingLifecycleSubscriber
-from request_for_quote.infrastructure.application.adapter.pricing_lifecycle_subscriber.kafka.pricing_partition_router import KafkaPricingPartitionRouter
-from request_for_quote.infrastructure.application.adapter.pricing_lifecycle_subscriber.kafka.pricing_rebalance_listener import PricingRebalanceListener
-from request_for_quote.infrastructure.application.adapter.pricing_session_store.in_memory_pricing_session_store import InMemoryPricingSessionRegistry
-from request_for_quote.infrastructure.application.pricing.adapter.sql_alchemy_pricing_session_store import SqlAlchemyPricingSessionStore
-from request_for_quote.infrastructure.application.pricing.adapter.sql_alchemy_pricing_session_unit_of_work import SqlAlchemyPricingSessionUnitOfWork
-from request_for_quote.infrastructure.domain.pricing_request.repository.sql_alchemy_repository import SqlAlchemyPricingRequestRepository
-from request_for_quote.infrastructure.postgres.base import create_engine, create_session_maker
+from request_for_quote.application.integration.events.rfq import (
+    RfqRegisteredIntegrationEvent,
+)
+from request_for_quote.application.port.rfq_domain_events_subscriber import (
+    IRfqDomainEventsSubscriber,
+)
+from request_for_quote.application.pricing.use_case.handle_rfq_registered import (
+    HandleRfqRegisteredForPricingUseCase,
+)
+from request_for_quote.application.pricing.use_case.handle_market_data_update import (
+    HandleMarketDataUpdateUseCase,
+)
+
+from request_for_quote.domain.market.market import MarketState
+from request_for_quote.domain.pricing.swap_pricer import SwapPricer
+
+from request_for_quote.infrastructure.application.adapter.market_data_subscriber.zeromq_market_data_subscriber import (
+    ZeroMqMarketDataSubscriber,
+)
+
+from request_for_quote.infrastructure.application.adapter.pricing_session_store.in_memory_pricing_session_store import (
+    InMemoryPricingSessionRegistry,
+)
+from request_for_quote.infrastructure.application.adapter.pricing_update_publisher.redis_pricing_update_publisher import (
+    RedisPricingUpdatePublisher,
+)
+from request_for_quote.infrastructure.application.adapter.rfq_domain_events_subscriber.kafka.kafka_rfq_domain_events_subscriber import KafkaRfqDomainEventsSubscriber
+from request_for_quote.infrastructure.application.adapter.rfq_domain_events_subscriber.kafka.pricing_partition_router import KafkaPricingPartitionRouter
+from request_for_quote.infrastructure.application.adapter.rfq_domain_events_subscriber.kafka.pricing_rebalance_listener import PricingRebalanceListener
+from request_for_quote.infrastructure.application.pricing.adapter.sql_alchemy_pricing_session_unit_of_work import (
+    SqlAlchemyPricingSessionUnitOfWork,
+)
+from request_for_quote.infrastructure.postgres.base import (
+    create_engine,
+    create_session_maker,
+)
 
 
 DATABASE_URL = (
@@ -81,18 +127,9 @@ DATABASE_URL = (
     "postgres:postgres@localhost:5432/request_for_quote"
 )
 
-PRICING_LIFECYCLE_TOPIC = "rfq-pricing-lifecycle"
+RFQ_DOMAIN_EVENTS_TOPIC = "rfq-domain-events"
 
-
-async def restore_active_sessions(
-    uow: IPricingSessionUnitOfWork,
-    registry: IPricingSessionRegistry,
-) -> None:
-    async with uow as uow:
-        active_sessions = await uow.get_pricing_session_store().list_active()
-
-    for active_session in active_sessions:
-        registry.save(active_session)
+PRICING_REDIS_URL = "redis://localhost:6379"
 
 
 async def consume_market_data(
@@ -106,77 +143,94 @@ async def consume_market_data(
         )
 
 
-async def consume_pricing_request_lifecycle(
-    subscriber: IPricingLifecycleSubscriber,
-    activate_use_case: ActivatePricingSessionUseCase,
-    change_use_case: ChangePricingUseCase,
-    stop_use_case: StopPricingUseCase,
+async def consume_rfq_domain_events(
+    subscriber: IRfqDomainEventsSubscriber,
+    handle_registered: HandleRfqRegisteredForPricingUseCase,
 ) -> None:
     async for event in subscriber.subscribe():
 
         match event:
-            case PricingActivated():
-                await activate_use_case.execute(
-                    event.request_id,
-                    event.revision,
+            case RfqRegisteredIntegrationEvent():
+                await handle_registered.execute(event)
+
+            case _:
+                raise ValueError(
+                    "Unsupported RFQ domain event: "
+                    f"{type(event).__name__}"
                 )
 
-            case PricingChanged():
-                await change_use_case.execute(
-                    request_id=event.request_id,
-                    revision=event.revision,
-                )
-
-            case PricingStopped():
-                await stop_use_case.execute(
-                    request_id=event.request_id,
-                )
-
-        # UseCaseが例外なく完了してからack
+        # UseCaseが正常に完了した場合のみoffsetをcommit
         await subscriber.ack()
 
 
 async def main() -> None:
     #
-    # Shared runtime state
+    # Shared process state
     #
+
     market_state = MarketState()
 
     session_registry = (
         InMemoryPricingSessionRegistry()
     )
 
-    engine = create_engine(DATABASE_URL)
-    session_maker = create_session_maker(engine)
+    #
+    # Infrastructure resources
+    #
 
-    pricing_request_repository = SqlAlchemyPricingRequestRepository(session=session_maker())
-    # session_store = SqlAlchemyPricingSessionStore(session=session_maker())
-    pricing_session_uow = SqlAlchemyPricingSessionUnitOfWork(session_maker)
+    engine = create_engine(
+        DATABASE_URL
+    )
+
+    session_maker = create_session_maker(
+        engine
+    )
+
+    redis_client = redis.Redis.from_url(
+        PRICING_REDIS_URL,
+        decode_responses=True,
+    )
+
+    #
+    # UoW factory
+    #
+    # UoWそのものは共有しない。
+    # 1 application operationごとに新しく生成する。
+    #
+
+    pricing_session_uow_factory = (
+        lambda: SqlAlchemyPricingSessionUnitOfWork(
+            session_maker
+        )
+    )
+
+    pricing_update_publisher = (
+        RedisPricingUpdatePublisher(
+            redis_client
+        )
+    )
 
     #
     # Domain services
     #
+
     pricer = SwapPricer()
 
     #
     # Application UseCases
     #
-    activate_rfq_pricing = (
-        ActivatePricingSessionUseCase(
-            pricing_session_uow_factory=lambda: pricing_session_uow,
-            session_registry=session_registry,
-            request_repository=pricing_request_repository,
-            market_state=market_state,
-            pricer=pricer,
-        )
-    )
 
-    change_pricing = (
-        ChangePricingUseCase(
-            session_store=session_registry,
-            request_repository=pricing_request_repository,
+    handle_rfq_registered = (
+        HandleRfqRegisteredForPricingUseCase(
+            pricing_session_uow_factory=(
+                pricing_session_uow_factory
+            ),
+            session_registry=session_registry,
             market_state=market_state,
             pricer=pricer,
+            pricing_update_publisher=(
+                pricing_update_publisher
+            ),
         )
     )
 
@@ -185,70 +239,103 @@ async def main() -> None:
             session_store=session_registry,
             market_state=market_state,
             pricer=pricer,
-        )
-    )
-
-    stop_rfq_pricing = (
-        StopPricingUseCase(
-            pricing_session_uow_factory=lambda: pricing_session_uow,
-            session_store=session_registry,
+            pricing_update_publisher=(
+                pricing_update_publisher
+            ),
         )
     )
 
     #
-    # Infrastructure Adapter
+    # Inbound adapters
     #
+
     market_data_subscriber = (
         ZeroMqMarketDataSubscriber(
             endpoint="tcp://127.0.0.1:5555",
-            topics={"JPY-OIS"},
+            topics={
+                "JPY-OIS",
+            },
         )
     )
 
-    consumer=AIOKafkaConsumer(
-        PRICING_LIFECYCLE_TOPIC,
+    kafka_consumer = AIOKafkaConsumer(
+        RFQ_DOMAIN_EVENTS_TOPIC,
         bootstrap_servers="localhost:9092",
         group_id="pricing-workers",
         auto_offset_reset="earliest",
+        enable_auto_commit=False,
+        session_timeout_ms=6000,
+        heartbeat_interval_ms=2000,
     )
 
-    partition_router = KafkaPricingPartitionRouter()
-
-    rebalance_listener = PricingRebalanceListener(
-        topic=PRICING_LIFECYCLE_TOPIC,
-        all_partitions={0, 1, 2, 3},
-        session_uow_factory=lambda: pricing_session_uow,
-        session_registry=session_registry,
-        partition_router=partition_router,
+    partition_router = (
+        KafkaPricingPartitionRouter()
     )
 
-    consumer.subscribe(topics=[PRICING_LIFECYCLE_TOPIC], listener=rebalance_listener) # 何をしている？？
-
-    pricing_lifecycle_subscriber = KafkaPricingLifecycleSubscriber(
-        consumer=consumer,
-    )
-
-    await restore_active_sessions(pricing_session_uow, session_registry)
-
-    async with asyncio.TaskGroup() as task_group:
-        task_group.create_task(
-            consume_market_data(
-                subscriber=market_data_subscriber,
-                use_case=handle_market_data_update,
-            )
+    rebalance_listener = (
+        PricingRebalanceListener(
+            topic=RFQ_DOMAIN_EVENTS_TOPIC,
+            all_partitions={
+                0,
+                1,
+                2,
+                3,
+            },
+            session_uow_factory=(
+                pricing_session_uow_factory
+            ),
+            session_registry=session_registry,
+            partition_router=partition_router,
         )
+    )
 
-        task_group.create_task(
-            consume_pricing_request_lifecycle(
-                subscriber=pricing_lifecycle_subscriber,
-                activate_use_case=activate_rfq_pricing,
-                change_use_case=change_pricing,
-                stop_use_case=stop_rfq_pricing,
-            )
+    kafka_consumer.subscribe(
+        topics=[
+            RFQ_DOMAIN_EVENTS_TOPIC,
+        ],
+        listener=rebalance_listener,
+    )
+
+    rfq_domain_events_subscriber = (
+        KafkaRfqDomainEventsSubscriber(
+            consumer=kafka_consumer,
         )
+    )
+
+    #
+    # Process lifecycle
+    #
+
+    await kafka_consumer.start()
+
+    try:
+        async with asyncio.TaskGroup() as task_group:
+
+            task_group.create_task(
+                consume_market_data(
+                    subscriber=market_data_subscriber,
+                    use_case=(
+                        handle_market_data_update
+                    ),
+                )
+            )
+
+            task_group.create_task(
+                consume_rfq_domain_events(
+                    subscriber=(
+                        rfq_domain_events_subscriber
+                    ),
+                    handle_registered=(
+                        handle_rfq_registered
+                    ),
+                )
+            )
+
+    finally:
+        await kafka_consumer.stop()
+        await redis_client.aclose()
+        await engine.dispose()
 
 
 if __name__ == "__main__":
     asyncio.run(main())
-
-    

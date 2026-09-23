@@ -24,10 +24,6 @@ class IRfqUnitOfWork(abc.ABC):
         raise NotImplementedError
 
     @abc.abstractmethod
-    def get_pricing_request_repository(self) -> IPricingRequestRepository:
-        raise NotImplementedError
-
-    @abc.abstractmethod
     def get_outbox_repository(self) -> OutboxRepository:
         raise NotImplementedError
     

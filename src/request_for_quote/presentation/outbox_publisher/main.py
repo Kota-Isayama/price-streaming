@@ -1,98 +1,88 @@
 import asyncio
+import logging
 
 from aiokafka import AIOKafkaProducer
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from request_for_quote.application.port.pricing_lifecycle_publisher import (
-    IPricingLifecyclePublisher,
-)
-from request_for_quote.infrastructure.application.adapter.outbox_repository.pricing_lifecycle_mapper import (
-    to_pricing_lifecycle_event,
-)
-from request_for_quote.infrastructure.application.adapter.outbox_repository.sql_alchemy_repository import (
-    SqlAlchemyOutboxRepository,
-)
-from request_for_quote.infrastructure.application.adapter.pricing_lifecycle_publisher.kafka_pricing_lifecycle_pubisher import (
-    KafkaPricingLifecyclePublisher,
-)
-from request_for_quote.infrastructure.postgres.base import (
-    create_engine,
-    create_session_maker,
-)
 
+from request_for_quote.application.outbox.use_case.publish_outbox_events import PublishOutboxEventsUseCase
+from request_for_quote.infrastructure.application.adapter.integration_event_publisher.kafka.event_router import KafkaEventRouter
+from request_for_quote.infrastructure.application.adapter.integration_event_publisher.kafka.kafka_integration_event_publisher import KafkaIntegrationEventPublisher
+from request_for_quote.infrastructure.application.adapter.outbox_delivery_uow.sql_alchemy_outbox_delivery_uow import SqlAlchemyOutboxDeliveryUnitOfWork
+from request_for_quote.infrastructure.postgres.base import create_engine, create_session_maker
+
+
+logger = logging.getLogger(__name__)
 
 DATABASE_URL = (
     "postgresql+asyncpg://"
     "postgres:postgres@localhost:5432/request_for_quote"
 )
 
-KAFKA_BOOTSTRAP_SERVERS = "localhost:9092"
-TOPIC = "rfq-pricing-lifecycle"
+PRICING_LIFECYCLE_TOPIC = "rfq-domain-events"
 
 
-async def publish_pending_events(
-    session_maker: async_sessionmaker[AsyncSession],
-    publisher: IPricingLifecyclePublisher,
-) -> None:
-    while True:
-        async with session_maker() as session:
-            outbox_repository = SqlAlchemyOutboxRepository(
-                session
-            )
+class OutboxWorker:
+    def __init__(
+        self,
+        *,
+        use_case: PublishOutboxEventsUseCase,
+        poll_interval_seconds: float = 0.5,
+    ) -> None:
+        self._use_case = use_case
+        self._poll_interval_seconds = poll_interval_seconds
 
-            events = await outbox_repository.list_pending(
-                limit=100
-            )
+    async def run(self) -> None:
+        while True:
+            try:
+                result = await self._use_case.execute(limit=100)
 
-            for outbox_event in events:
-                lifecycle_event = to_pricing_lifecycle_event(
-                    outbox_event
+                if result.claimed == 0:
+                    await asyncio.sleep(self._poll_interval_seconds)
+
+            except asyncio.CancelledError:
+                raise
+
+            except Exception:
+                logger.exception(
+                    "Outbox worker failed"
                 )
 
-                await publisher.publish(
-                    lifecycle_event
-                )
-
-                print(
-                    f"[EVENT] "
-                    f"published {outbox_event.event_id} "
-                    f"{type(lifecycle_event)}"
-                )
-
-                await outbox_repository.mark_published(
-                    outbox_event.event_id
-                )
-
-            await session.commit()
-
-        await asyncio.sleep(1)
+                await asyncio.sleep(self._poll_interval_seconds)
 
 
 async def main() -> None:
     engine = create_engine(DATABASE_URL)
     session_maker = create_session_maker(engine)
+    kafka_producer = AIOKafkaProducer(
+        bootstrap_servers="localhost:9092",
+    )
+    await kafka_producer.start()
 
-    producer = AIOKafkaProducer(
-        bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
+    outbox_uow_factory = lambda: (
+        SqlAlchemyOutboxDeliveryUnitOfWork(
+            session_maker
+        )
     )
 
-    await producer.start()
+    publisher = KafkaIntegrationEventPublisher(
+        producer=kafka_producer,
+        router=KafkaEventRouter(),
+    )
 
-    try:
-        publisher = KafkaPricingLifecyclePublisher(
-            producer=producer,
-            topic=TOPIC,
-        )
-
-        await publish_pending_events(
-            session_maker=session_maker,
+    publish_outbox_use_case = (
+        PublishOutboxEventsUseCase(
+            uow_factory=outbox_uow_factory,
             publisher=publisher,
         )
+    )
 
-    finally:
-        await producer.stop()
-        await engine.dispose()
+    worker = OutboxWorker(
+        use_case=publish_outbox_use_case,
+    )
+
+    await worker.run()
 
 
 if __name__ == "__main__":
     asyncio.run(main())
+

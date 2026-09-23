@@ -34,5 +34,12 @@
             "module": "request_for_quote.presentation.pricing_worker.main",
             "cwd": "${workspaceFolder}/src/",
         },
+        {
+            "name": "Run notification worker",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "request_for_quote.presentation.notification_worker.main",
+            "cwd": "${workspaceFolder}/src/",
+        },
     ]
 }

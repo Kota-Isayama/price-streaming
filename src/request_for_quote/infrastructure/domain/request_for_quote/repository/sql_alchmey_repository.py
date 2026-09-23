@@ -1,6 +1,7 @@
 from datetime import date
 from decimal import Decimal
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from request_for_quote.domain.product import Product
@@ -33,6 +34,8 @@ class SqlAlchemyRfqRepository(IRfqRepository):
                 "fixed_leg": rfq.product.fixed_leg.value,
                 "currency": rfq.product.currency.value,
             },
+            assigned_trader=rfq.assigned_trader,
+            registered_by=rfq.registered_by,
         )
 
         await self._session.merge(orm)
@@ -49,8 +52,25 @@ class SqlAlchemyRfqRepository(IRfqRepository):
         if orm is None:
             return None
 
-        payload = orm.payload
+        return self._from_orm_to_model(orm)
 
+    async def list_all(self):
+        orms = (
+            await self._session.execute(
+                select(RfqOrm)
+            )    
+        ).scalars().all()
+
+        return [
+            self._from_orm_to_model(orm)
+            for orm in orms
+        ]
+
+
+    @classmethod
+    def _from_orm_to_model(cls, orm: RfqOrm) -> RequestForQuote:
+        payload = orm.payload
+        
         product = InterestRateSwap(
             notional=Decimal(payload["notional"]),
             effective_date=date.fromisoformat(
@@ -64,8 +84,10 @@ class SqlAlchemyRfqRepository(IRfqRepository):
         )
 
         return RequestForQuote(
-            rfq_id=rfq_id,
+            rfq_id=orm.rfq_id,
             revision=orm.revision,
             product=product,
+            assigned_trader=orm.assigned_trader,
+            registered_by=orm.registered_by,
         )
     
