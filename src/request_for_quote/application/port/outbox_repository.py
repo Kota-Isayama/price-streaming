@@ -30,13 +30,6 @@ class OutboxRepository(abc.ABC):
         raise NotImplementedError
 
     @abc.abstractmethod
-    async def list_pending(
-        self,
-        limit: int,
-    ) -> list[OutboxEvent]:
-        raise NotImplementedError
-
-    @abc.abstractmethod
     async def claim_pending(
         self,
         claim_id: str,

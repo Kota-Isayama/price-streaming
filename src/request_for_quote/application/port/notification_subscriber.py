@@ -17,6 +17,6 @@ class NotificationMessage(BaseModel):
 
 class INotificationSubscriber(abc.ABC):
     @abc.abstractmethod
-    async def subscribe(self, recipient: str) -> AsyncIterator[NotificationMessage]:
+    def subscribe(self, recipient: str) -> AsyncIterator[NotificationMessage]:
         raise NotImplementedError
     

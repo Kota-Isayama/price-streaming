@@ -1,0 +1,9 @@
+database:
+  url: postgresql+asyncpg://postgres:postgres@localhost:5432/request_for_quote
+  echo: false
+
+rfq_events:
+  backend: kafka
+  bootstrap_servers: localhost:9092
+  topic: rfq-domain-events
+  

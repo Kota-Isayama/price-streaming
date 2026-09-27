@@ -5,6 +5,8 @@ from aiokafka import AIOKafkaProducer
 
 
 from request_for_quote.application.outbox.use_case.publish_outbox_events import PublishOutboxEventsUseCase
+from request_for_quote.bootstrap.processes.outbox_worker import bootstrap_outbox_worker
+from request_for_quote.bootstrap.settings.outbox_worker import OutboxWorkerSettings
 from request_for_quote.infrastructure.application.adapter.integration_event_publisher.kafka.event_router import KafkaEventRouter
 from request_for_quote.infrastructure.application.adapter.integration_event_publisher.kafka.kafka_integration_event_publisher import KafkaIntegrationEventPublisher
 from request_for_quote.infrastructure.application.adapter.outbox_delivery_uow.sql_alchemy_outbox_delivery_uow import SqlAlchemyOutboxDeliveryUnitOfWork
@@ -51,36 +53,27 @@ class OutboxWorker:
 
 
 async def main() -> None:
-    engine = create_engine(DATABASE_URL)
-    session_maker = create_session_maker(engine)
-    kafka_producer = AIOKafkaProducer(
-        bootstrap_servers="localhost:9092",
-    )
-    await kafka_producer.start()
+    settings = OutboxWorkerSettings.load()
 
-    outbox_uow_factory = lambda: (
-        SqlAlchemyOutboxDeliveryUnitOfWork(
-            session_maker
+    async with bootstrap_outbox_worker(settings=settings) as worker_container:
+        outbox_uow_factory = lambda: (
+            SqlAlchemyOutboxDeliveryUnitOfWork(
+                worker_container.session_maker,
+            )
         )
-    )
 
-    publisher = KafkaIntegrationEventPublisher(
-        producer=kafka_producer,
-        router=KafkaEventRouter(),
-    )
-
-    publish_outbox_use_case = (
-        PublishOutboxEventsUseCase(
-            uow_factory=outbox_uow_factory,
-            publisher=publisher,
+        publish_outbox_use_case = (
+            PublishOutboxEventsUseCase(
+                uow_factory=outbox_uow_factory,
+                publisher=worker_container.publisher,
+            )
         )
-    )
 
-    worker = OutboxWorker(
-        use_case=publish_outbox_use_case,
-    )
+        worker = OutboxWorker(
+            use_case=publish_outbox_use_case,
+        )
 
-    await worker.run()
+        await worker.run()
 
 
 if __name__ == "__main__":

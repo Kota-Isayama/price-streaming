@@ -1,0 +1,20 @@
+database:
+  url: postgresql+asyncpg://postgres:postgres@localhost:5432/request_for_quote
+  echo: false
+
+rfq_domain_event:
+  backend: kafka
+  bootstrap_servers: localhost:9092
+  topic: rfq-domain-events
+  consumer_group: pricing-workers
+  partitions: 4
+
+market_data:
+  backend: zeromq
+  endpoint: tcp://localhost:5555
+  topic: ""
+
+pricing_updates:
+  backend: redis
+  url: redis://localhost:6379/0
+  channel_prefix: pricing

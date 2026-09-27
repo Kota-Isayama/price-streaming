@@ -10,11 +10,13 @@ class RedisNotificationPublisher(INotificationPublisher):
     def __init__(
         self,
         redis_client: redis.Redis,
+        channel_prefix: str,
     ) -> None:
         self._redis_client = redis_client
+        self._channel_prefix = channel_prefix
 
     async def publish(self, notification: Notification) -> None:
-        channel = f"notifications:{notification.recipient}"
+        channel = f"{self._channel_prefix}:{notification.recipient}"
 
         payload = {
             "notification_id": notification.notification_id,

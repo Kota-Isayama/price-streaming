@@ -6,8 +6,9 @@ from request_for_quote.application.port.pricing_update_publisher import IPricing
 
 
 class RedisPricingUpdatePublisher(IPricingUpdatePublisher):
-    def __init__(self, redis: redis.Redis):
+    def __init__(self, redis: redis.Redis, channel_prefix: str):
         self._redis = redis
+        self._channel_prefix = channel_prefix
 
     async def publish(self, request_id, price):
         channel = self._channel(request_id)
@@ -24,7 +25,6 @@ class RedisPricingUpdatePublisher(IPricingUpdatePublisher):
             payload,
         )
 
-    @classmethod
-    def _channel(cls, request_id: str) -> str:
-        return f"pricing:{request_id}"
+    def _channel(self, request_id: str) -> str:
+        return f"{self._channel_prefix}:{request_id}"
     

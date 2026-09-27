@@ -3,12 +3,12 @@ from datetime import datetime, timezone
 from sqlalchemy import Select, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from request_for_quote.application.port.outbox_repository import OutboxEvent
+from request_for_quote.application.port.outbox_repository import OutboxEvent, OutboxRepository
 from request_for_quote.domain.shared.aware_datetime import AwareDateTime
 from request_for_quote.infrastructure.postgres.models import OutboxEventOrm
 
 
-class SqlAlchemyOutboxRepository:
+class SqlAlchemyOutboxRepository(OutboxRepository):
     def __init__(
         self,
         session: AsyncSession,

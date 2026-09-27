@@ -1,0 +1,13 @@
+database:
+  url: postgresql+asyncpg://postgres:postgres@localhost:5432/request_for_quote
+  echo: false
+
+notification_updates:
+  backend: redis
+  url: redis://localhost:6379/0
+  channel_prefix: notifications
+
+pricing_updates:
+  backend: redis
+  url: redis://localhost:6379/0
+  channel_prefix: pricing

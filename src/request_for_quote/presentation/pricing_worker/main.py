@@ -87,6 +87,7 @@ import redis.asyncio as redis
 from request_for_quote.application.integration.events.rfq import (
     RfqRegisteredIntegrationEvent,
 )
+from request_for_quote.application.port.market_data_subscriber import IMarketDataSubscriber
 from request_for_quote.application.port.rfq_domain_events_subscriber import (
     IRfqDomainEventsSubscriber,
 )
@@ -97,6 +98,8 @@ from request_for_quote.application.pricing.use_case.handle_market_data_update im
     HandleMarketDataUpdateUseCase,
 )
 
+from request_for_quote.bootstrap.processes.pricing_worker import bootstrap_pricing_worker
+from request_for_quote.bootstrap.settings.pricing_worker import PricingWorkerSettings
 from request_for_quote.domain.market.market import MarketState
 from request_for_quote.domain.pricing.swap_pricer import SwapPricer
 
@@ -122,18 +125,8 @@ from request_for_quote.infrastructure.postgres.base import (
 )
 
 
-DATABASE_URL = (
-    "postgresql+asyncpg://"
-    "postgres:postgres@localhost:5432/request_for_quote"
-)
-
-RFQ_DOMAIN_EVENTS_TOPIC = "rfq-domain-events"
-
-PRICING_REDIS_URL = "redis://localhost:6379"
-
-
 async def consume_market_data(
-    subscriber: ZeroMqMarketDataSubscriber,
+    subscriber: IMarketDataSubscriber,
     use_case: HandleMarketDataUpdateUseCase,
 ) -> None:
     async for update in subscriber.subscribe():
@@ -164,156 +157,56 @@ async def consume_rfq_domain_events(
 
 
 async def main() -> None:
-    #
-    # Shared process state
-    #
+    settings = PricingWorkerSettings.load()
 
-    market_state = MarketState()
-
-    session_registry = (
-        InMemoryPricingSessionRegistry()
-    )
-
-    #
-    # Infrastructure resources
-    #
-
-    engine = create_engine(
-        DATABASE_URL
-    )
-
-    session_maker = create_session_maker(
-        engine
-    )
-
-    redis_client = redis.Redis.from_url(
-        PRICING_REDIS_URL,
-        decode_responses=True,
-    )
-
-    #
-    # UoW factory
-    #
-    # UoWそのものは共有しない。
-    # 1 application operationごとに新しく生成する。
-    #
-
-    pricing_session_uow_factory = (
-        lambda: SqlAlchemyPricingSessionUnitOfWork(
-            session_maker
+    async with bootstrap_pricing_worker(settings=settings) as worker_container:
+        market_state = MarketState()
+        #
+        # UoW factory
+        #
+        # UoWそのものは共有しない。
+        # 1 application operationごとに新しく生成する。
+        #
+        pricing_session_uow_factory = (
+            lambda: SqlAlchemyPricingSessionUnitOfWork(
+                worker_container.session_maker,
+            )
         )
-    )
 
-    pricing_update_publisher = (
-        RedisPricingUpdatePublisher(
-            redis_client
+        #
+        # Domain services
+        #
+        pricer = SwapPricer()
+
+        #
+        # Application UseCases
+        #
+        handle_rfq_registered = (
+            HandleRfqRegisteredForPricingUseCase(
+                pricing_session_uow_factory=(
+                    pricing_session_uow_factory
+                ),
+                session_registry=worker_container.session_registry,
+                market_state=market_state,
+                pricer=pricer,
+                pricing_update_publisher=worker_container.pricing_updates,
+            )
         )
-    )
 
-    #
-    # Domain services
-    #
-
-    pricer = SwapPricer()
-
-    #
-    # Application UseCases
-    #
-
-    handle_rfq_registered = (
-        HandleRfqRegisteredForPricingUseCase(
-            pricing_session_uow_factory=(
-                pricing_session_uow_factory
-            ),
-            session_registry=session_registry,
-            market_state=market_state,
-            pricer=pricer,
-            pricing_update_publisher=(
-                pricing_update_publisher
-            ),
+        handle_market_data_update = (
+            HandleMarketDataUpdateUseCase(
+                session_store=worker_container.session_registry,
+                market_state=market_state,
+                pricer=pricer,
+                pricing_update_publisher=worker_container.pricing_updates,
+            )
         )
-    )
 
-    handle_market_data_update = (
-        HandleMarketDataUpdateUseCase(
-            session_store=session_registry,
-            market_state=market_state,
-            pricer=pricer,
-            pricing_update_publisher=(
-                pricing_update_publisher
-            ),
-        )
-    )
-
-    #
-    # Inbound adapters
-    #
-
-    market_data_subscriber = (
-        ZeroMqMarketDataSubscriber(
-            endpoint="tcp://127.0.0.1:5555",
-            topics={
-                "JPY-OIS",
-            },
-        )
-    )
-
-    kafka_consumer = AIOKafkaConsumer(
-        RFQ_DOMAIN_EVENTS_TOPIC,
-        bootstrap_servers="localhost:9092",
-        group_id="pricing-workers",
-        auto_offset_reset="earliest",
-        enable_auto_commit=False,
-        session_timeout_ms=6000,
-        heartbeat_interval_ms=2000,
-    )
-
-    partition_router = (
-        KafkaPricingPartitionRouter()
-    )
-
-    rebalance_listener = (
-        PricingRebalanceListener(
-            topic=RFQ_DOMAIN_EVENTS_TOPIC,
-            all_partitions={
-                0,
-                1,
-                2,
-                3,
-            },
-            session_uow_factory=(
-                pricing_session_uow_factory
-            ),
-            session_registry=session_registry,
-            partition_router=partition_router,
-        )
-    )
-
-    kafka_consumer.subscribe(
-        topics=[
-            RFQ_DOMAIN_EVENTS_TOPIC,
-        ],
-        listener=rebalance_listener,
-    )
-
-    rfq_domain_events_subscriber = (
-        KafkaRfqDomainEventsSubscriber(
-            consumer=kafka_consumer,
-        )
-    )
-
-    #
-    # Process lifecycle
-    #
-
-    await kafka_consumer.start()
-
-    try:
         async with asyncio.TaskGroup() as task_group:
 
             task_group.create_task(
                 consume_market_data(
-                    subscriber=market_data_subscriber,
+                    subscriber=worker_container.market_data_subscriber,
                     use_case=(
                         handle_market_data_update
                     ),
@@ -322,19 +215,11 @@ async def main() -> None:
 
             task_group.create_task(
                 consume_rfq_domain_events(
-                    subscriber=(
-                        rfq_domain_events_subscriber
-                    ),
-                    handle_registered=(
-                        handle_rfq_registered
-                    ),
+                    subscriber=worker_container.rfq_domain_events_subscriber,
+                    handle_registered=handle_rfq_registered,
                 )
             )
 
-    finally:
-        await kafka_consumer.stop()
-        await redis_client.aclose()
-        await engine.dispose()
 
 
 if __name__ == "__main__":

@@ -19,7 +19,7 @@ class IPricingUpdateSubscriber(abc.ABC):
         raise NotImplementedError
 
     @abc.abstractmethod
-    async def updates(
+    def updates(
         self,
     ) -> AsyncIterator[PricingUpdate]:
         raise NotImplementedError

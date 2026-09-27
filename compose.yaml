@@ -128,7 +128,27 @@ services:
     ports:
     - "6379:6379"
     restart: unless-stopped
+  
+  rabbitmq:
+    image: rabbitmq:4.3.6-management
+    container_name: rfq-rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: rfq
+      RABBITMQ_DEFAULT_PASS: rfq
+      RABBITMQ_DEFAULT_VHOST: rfq
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
     
 volumes:
   postgres-data:
   pgadmin_data:
+  rabbitmq_data:
+  

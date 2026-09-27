@@ -1,0 +1,21 @@
+database:
+  url: postgresql+asyncpg://postgres:postgres@localhost:5432/request_for_quote
+  echo: false
+
+rfq_events:
+  backend: rabbitmq
+
+  url: amqp://rfq:rfq@localhost:5672/rfq
+
+  exchange: rfq.events
+  queue: notification.rfq-events
+
+  routing_keys:
+    - rfq.registered
+
+  prefetch_count: 10
+
+notification_updates:
+  backend: redis
+  url: redis://localhost:6379/0
+  channel_prefix: notifications
