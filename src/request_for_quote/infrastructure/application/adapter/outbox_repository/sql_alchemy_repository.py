@@ -112,9 +112,8 @@ class SqlAlchemyOutboxRepository(OutboxRepository):
 
     async def mark_published(
         self,
-        *,
-        claim_id: str,
         event_id: str,
+        claim_id: str,
         published_at: datetime,
     ) -> None:
         stmt = (
@@ -135,7 +134,6 @@ class SqlAlchemyOutboxRepository(OutboxRepository):
 
     async def mark_failed(
         self,
-        *,
         event_id: str,
         claim_id: str,
     ) -> None:

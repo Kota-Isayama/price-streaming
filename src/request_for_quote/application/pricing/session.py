@@ -10,6 +10,13 @@ class PricingSessionStatus(enum.Enum):
     ACTIVE = "active"
     DEACTIVE = "deactive"
 
+    def to_str(self) -> str:
+        return str(self.value)
+
+    @classmethod
+    def from_str(cls, value_str: str) -> Self:
+        return cls(value_str)
+
 
 @dataclasses.dataclass(frozen=True)
 class PricingSession:

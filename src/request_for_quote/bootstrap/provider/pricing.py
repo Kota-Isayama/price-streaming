@@ -1,3 +1,4 @@
+import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
@@ -15,7 +16,10 @@ from request_for_quote.bootstrap.settings.pricing_worker import (
 )
 from request_for_quote.infrastructure.application.adapter.market_data_subscriber.zeromq_market_data_subscriber import ZeroMqMarketDataSubscriber
 from request_for_quote.infrastructure.application.adapter.pricing_update_publisher.redis_pricing_update_publisher import RedisPricingUpdatePublisher
-from request_for_quote.infrastructure.application.adapter.rfq_domain_events_subscriber.kafka.kafka_rfq_domain_events_subscriber import KafkaRfqDomainEventsSubscriber
+from request_for_quote.infrastructure.application.adapter.rfq_domain_events_subscriber.kafka.pricing_partition_router import KafkaPricingPartitionRouter
+from request_for_quote.infrastructure.application.pricing.adapter.pricing_rfq_domain_events_subscriber.kafka.pricing_rfq_domain_events_subscriber import KafkaRfqDomainEventsSubscriber
+from request_for_quote.infrastructure.application.pricing.adapter.pricing_shard_resolver.kafka.pricing_shard_resolver import KafkaPricingShardResolver
+from request_for_quote.infrastructure.application.pricing.adapter.pricing_shared_ownership.kafka.pricing_shared_ownership import KafkaPricingShardOwnership
 
 
 @asynccontextmanager
@@ -53,11 +57,25 @@ async def provide_rfq_domain_events_subscriber(
         listener=rebalance_listener,
     )
 
+    subscriber = KafkaRfqDomainEventsSubscriber(
+        consumer=consumer,
+    )
+
+    dispatcher_task = asyncio.create_task(
+        subscriber.run(),
+        name="kafka-rfq-domain-event-dispatcher",
+    )
+
     try:
-        yield KafkaRfqDomainEventsSubscriber(
-            consumer=consumer,
-        )
+        yield subscriber
     finally:
+        dispatcher_task.cancel()
+
+        await asyncio.gather(
+            dispatcher_task,
+            return_exceptions=True,
+        )
+        
         await consumer.stop()
 
 
@@ -74,3 +92,22 @@ async def provide_market_data_subscriber(
         yield subscriber
     finally:
         subscriber.close()
+
+
+@asynccontextmanager
+async def provide_pricing_shard_ownership(
+    settings: KafkaRfqDomainEventsSubscriberSettings,
+) -> AsyncGenerator[KafkaPricingShardOwnership]:
+    yield KafkaPricingShardOwnership(
+        topic=settings.topic,
+    )
+
+
+@asynccontextmanager
+async def provide_pricing_shard_resolver(
+    settings: KafkaRfqDomainEventsSubscriberSettings,
+) -> AsyncGenerator[KafkaPricingShardResolver]:
+    yield KafkaPricingShardResolver(
+        router=KafkaPricingPartitionRouter(),
+        partitions={i for i in range(settings.partitions)},
+    )

@@ -4,7 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from request_for_quote.application.pricing.port.pricing_session_store import IPricingSessionStore
-from request_for_quote.application.pricing.session import PricingSession
+from request_for_quote.application.pricing.session import PricingSession, PricingSessionStatus
 from request_for_quote.domain.market.market import MarketDataId
 from request_for_quote.domain.pricing.request import SwapPricingRequest
 from request_for_quote.domain.product.shared import Currency
@@ -32,7 +32,7 @@ class SqlAlchemyPricingSessionStore(IPricingSessionStore):
                     },
                 },
                 dependencies=[dep.value for dep in pricing_session.dependencies],
-                status=str(pricing_session.status),
+                status=pricing_session.status.to_str(),
             )
         )
 
@@ -60,7 +60,7 @@ class SqlAlchemyPricingSessionStore(IPricingSessionStore):
         )
 
     async def list_active(self) -> list[PricingSession]:
-        stmt = select(PricingSessionOrm).where(PricingSessionOrm.status == "active")
+        stmt = select(PricingSessionOrm).where(PricingSessionOrm.status == PricingSessionStatus.ACTIVE.to_str())
 
         result = await self._session.execute(stmt)
 
@@ -80,7 +80,7 @@ class SqlAlchemyPricingSessionStore(IPricingSessionStore):
                     ),
                 ),
                 dependencies={MarketDataId(value) for value in result.dependencies},
-                status=result.status,
+                status=PricingSessionStatus.from_str(result.status),
             ) for result in rows
         ]
     

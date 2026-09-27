@@ -11,11 +11,17 @@ from request_for_quote.application.port.market_data_subscriber import IMarketDat
 from request_for_quote.application.port.pricing_session_registry import IPricingSessionRegistry
 from request_for_quote.application.port.pricing_update_publisher import IPricingUpdatePublisher
 from request_for_quote.application.port.rfq_domain_events_subscriber import IRfqDomainEventsSubscriber
+from request_for_quote.application.pricing.port import pricing_shard_resolver
+from request_for_quote.application.pricing.port.pricing_rfq_domain_events_subscriber import IPricingRfqDomainEventsSubscriber
+from request_for_quote.application.pricing.port.pricing_shard_resolver import IPricingShardResolver
+from request_for_quote.application.pricing.port.pricing_shared_ownership import IPricingShardOwnership
 from request_for_quote.bootstrap.provider.database import (
     provide_session_maker,
 )
 from request_for_quote.bootstrap.provider.pricing import (
     provide_market_data_subscriber,
+    provide_pricing_shard_ownership,
+    provide_pricing_shard_resolver,
     provide_rfq_domain_events_subscriber,
     provide_pricing_updates_publisher,
 )
@@ -32,11 +38,16 @@ from request_for_quote.infrastructure.application.pricing.adapter.sql_alchemy_pr
 class PricingWorkerContainer:
     session_maker: async_sessionmaker[AsyncSession]
 
-    rfq_domain_events_subscriber: IRfqDomainEventsSubscriber
     market_data_subscriber: IMarketDataSubscriber
     pricing_updates: IPricingUpdatePublisher
 
     session_registry: IPricingSessionRegistry
+
+    rfq_domain_events_subscriber: IPricingRfqDomainEventsSubscriber
+
+    pricing_shard_ownership: IPricingShardOwnership
+
+    pricing_shard_resolver: IPricingShardResolver
 
 
 @asynccontextmanager
@@ -53,18 +64,23 @@ async def bootstrap_pricing_worker(
 
         session_registry = InMemoryPricingSessionRegistry()
 
-        rebalance_listener = PricingRebalanceListener(
-            topic=settings.rfq_domain_event.topic,
-            all_partitions={i for i in range(settings.rfq_domain_event.partitions)},  # なんか違うよなぁ...
-            session_registry=session_registry,
-            session_uow_factory=lambda: SqlAlchemyPricingSessionUnitOfWork(session_maker),
-            partition_router=KafkaPricingPartitionRouter(),
+
+        pricing_shard_ownership = await stack.enter_async_context(
+            provide_pricing_shard_ownership(
+                settings=settings.rfq_domain_event,
+            )
         )
 
         rfq_domain_events_subscriber = await stack.enter_async_context(
             provide_rfq_domain_events_subscriber(
                 settings.rfq_domain_event,
-                rebalance_listener,
+                pricing_shard_ownership,
+            )
+        )
+
+        pricing_shard_resolver = await stack.enter_async_context(
+            provide_pricing_shard_resolver(
+                settings=settings.rfq_domain_event,
             )
         )
 
@@ -86,5 +102,7 @@ async def bootstrap_pricing_worker(
             market_data_subscriber=market_data_subscriber,
             pricing_updates=pricing_updates,
             session_registry=session_registry,
+            pricing_shard_ownership=pricing_shard_ownership,
+            pricing_shard_resolver=pricing_shard_resolver,
         )
         
