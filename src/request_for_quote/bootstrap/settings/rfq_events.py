@@ -11,10 +11,12 @@ class KafkaRfqEventsPublisherSettings(BaseModel):
 
 
 class RabbitMqRfqEventsPublisherSettings(BaseModel):
-    backend: Literal["rabbitmq"]
+    backend: Literal["rabbitmq_quorum"]
 
     url: str
     exchange: str
+
+    pricing_shard_count: int
 
 
 RfqEventsPublisherSettings = Annotated[
@@ -33,15 +35,24 @@ class KafkaRfqEventsSubscriberSettings(BaseModel):
 
 
 class RabbitMqRfqEventsSubscriberSettings(BaseModel):
-    backend: Literal["rabbitmq"]
+    backend: Literal["rabbitmq_quorum"]
 
-    url: str
+    url: str = "amqp://rfq:rfq@localhost:5672/rfq"
 
-    exchange: str 
-    queue: str
+    exchange: str = "rfq.pricing"
+    queue_prefix: str = "rfq.pricing"
 
-    routing_keys: list[str]
-    prefetch_count: int
+    shared_count: int = 4
+
+    prefetch_count: int = 10
+
+    # Coordinator
+    worker_id: str 
+    lease_seconds: int = 10
+    renew_interval_seconds: float = 3.0
+
+    # 最初の実装では1 workerが取りすぎないように上限を置く
+    max_shards_per_worker: int = 2
 
 
 RfqEventsSubscriberSettings = Annotated[

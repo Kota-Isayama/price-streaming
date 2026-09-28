@@ -3,7 +3,7 @@
 from datetime import datetime
 from re import I
 
-from sqlalchemy import ARRAY, Boolean, DateTime, Integer, String, UniqueConstraint
+from sqlalchemy import ARRAY, BigInteger, Boolean, DateTime, Integer, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -140,3 +140,33 @@ class NotificationOrm(Base):
         DateTime(timezone=True),
         nullable=True,
     )
+
+
+class PricingShardLeaseOrm(Base):
+    __tablename__ = "pricing_shard_lease"
+
+    shard_id: Mapped[int] = mapped_column(
+        Integer,
+        primary_key=True,
+    )
+
+    owner_id: Mapped[str | None] = (
+        mapped_column(
+            String,
+            nullable=True,
+        )
+    )
+
+    lease_until: Mapped[
+        datetime | None
+    ] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+    epoch: Mapped[int] = mapped_column(
+        BigInteger,
+        nullable=False,
+        default=0,
+    )
+    

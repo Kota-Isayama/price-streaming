@@ -2,8 +2,17 @@ database:
   url: postgresql+asyncpg://postgres:postgres@localhost:5432/request_for_quote
   echo: false
 
-rfq_events:
-  backend: kafka
-  bootstrap_servers: localhost:9092
-  topic: rfq-domain-events
+# rfq_events:
+#   backend: kafka
+#   bootstrap_servers: localhost:9092
+#   topic: rfq-domain-events
   
+rfq_events:
+  backend: rabbitmq_quorum
+
+  url: amqp://rfq:rfq@localhost:5672/rfq
+
+  exchange: rfq.pricing
+  queue_prefix: rfq.pricing
+
+  pricing_shard_count: 4

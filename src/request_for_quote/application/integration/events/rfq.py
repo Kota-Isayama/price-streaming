@@ -1,6 +1,6 @@
 import datetime
 import enum
-from typing import Literal
+from typing import Literal, TypeAlias
 
 from pydantic import BaseModel
 
@@ -24,3 +24,6 @@ class RfqRegisteredIntegrationEvent(BaseModel):
     registered_by: str
 
     occurred_at: datetime.datetime
+
+
+RfqIntegrationEvent: TypeAlias = RfqRegisteredIntegrationEvent

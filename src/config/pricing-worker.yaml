@@ -2,12 +2,30 @@ database:
   url: postgresql+asyncpg://postgres:postgres@localhost:5432/request_for_quote
   echo: false
 
+# For Kafka
+# rfq_domain_event:
+#   backend: kafka
+#   bootstrap_servers: localhost:9092
+#   topic: rfq-domain-events
+#   consumer_group: pricing-workers
+#   partition_count: 4
+
+# For RabbitMQ
 rfq_domain_event:
-  backend: kafka
-  bootstrap_servers: localhost:9092
-  topic: rfq-domain-events
-  consumer_group: pricing-workers
-  partitions: 4
+  backend: rabbitmq_quorum
+
+  url: amqp://rfq:rfq@localhost:5672/rfq
+
+  exchange: rfq.pricing
+  queue_prefix: rfq.pricing
+
+  shard_count: 4
+
+  worker_id: pricing-worker-1
+
+  lease_seconds: 10
+  renew_interval_seconds: 3
+  max_shards_per_worker: 4
 
 market_data:
   backend: zeromq

@@ -4,6 +4,10 @@ from typing import AsyncGenerator
 
 import aio_pika
 from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
+from sqlalchemy.ext.asyncio import (
+    AsyncSession,
+    async_sessionmaker,
+)
 
 from request_for_quote.application.port.integration_event_publisher import (
     IIntegrationEventPublisher,
@@ -23,11 +27,14 @@ from request_for_quote.infrastructure.application.adapter.integration_event_publ
 from request_for_quote.infrastructure.application.adapter.integration_event_publisher.kafka.kafka_integration_event_publisher import (
     KafkaIntegrationEventPublisher,
 )
-from request_for_quote.infrastructure.application.adapter.integration_event_publisher.rabbitmq.rabbitmq_integration_event_publisher import (
-    RabbitmqIntegrationEventPublisher,
-)
+
+from request_for_quote.infrastructure.application.adapter.integration_event_publisher.rabbitmq.rabbitmq_integration_event_publisher import RabbitMqIntegrationEventPublisher
 from request_for_quote.infrastructure.application.adapter.rfq_domain_events_subscriber.kafka.kafka_rfq_domain_events_subscriber import KafkaRfqDomainEventsSubscriber
 from request_for_quote.infrastructure.application.adapter.rfq_domain_events_subscriber.rabbitmq.rabbitmq_rfq_domain_events_publisher import RabbitmqRfqDomainEventsSubscriber
+from request_for_quote.infrastructure.application.pricing.adapter.pricing_rfq_domain_events_subscriber.rabbitmq.pricing_rfq_domain_events_subscriber import RabbitMqQuorumRfqDomainEventsSubscriber
+from request_for_quote.infrastructure.application.pricing.adapter.pricing_shard_resolver.rabbitmq.pricins_shard_resolver import StablePricingShardResolver
+from request_for_quote.infrastructure.application.pricing.adapter.pricing_shared_ownership.postgres.postgres_pricing_shared_ownership import PostgresPricingShardOwnership
+from request_for_quote.infrastructure.rabbitmq.topology import declare_pricing_topology
 
 
 @asynccontextmanager
@@ -68,8 +75,13 @@ async def provide_rfq_events_publisher(
                     durable=True,
                 )
 
-                yield RabbitmqIntegrationEventPublisher(
+                resolver = StablePricingShardResolver(
+                    shard_count=settings.pricing_shard_count,
+                )
+
+                yield RabbitMqIntegrationEventPublisher(
                     exchange=exchange,
+                    shard_resolver=resolver,
                 )
 
             finally:
@@ -134,4 +146,3 @@ async def provide_rfq_events_subscriber(
 
             finally:
                 await connection.close()
-                
