@@ -134,11 +134,14 @@ services:
     container_name: rfq-rabbitmq
     ports:
       - "5672:5672"
+      - "5552:5552"
       - "15672:15672"
     environment:
       RABBITMQ_DEFAULT_USER: rfq
       RABBITMQ_DEFAULT_PASS: rfq
       RABBITMQ_DEFAULT_VHOST: rfq
+      RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: >-
+        -rabbitmq_stream advertised_host localhost
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
     healthcheck:
@@ -151,4 +154,3 @@ volumes:
   postgres-data:
   pgadmin_data:
   rabbitmq_data:
-  
