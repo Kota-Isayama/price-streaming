@@ -1,5 +1,4 @@
 import asyncio
-from tkinter import NO
 from typing import AsyncIterator
 import uuid
 
@@ -11,7 +10,7 @@ from request_for_quote.application.pricing.model.pricing_shard_ownership_change 
 from request_for_quote.application.pricing.port.pricing_shared_ownership import IPricingShardOwnership
 
 
-class RabbitmqPricingShardOwnership(IPricingShardOwnership):
+class RabbitmqSuperStreamPricingShardOwnership(IPricingShardOwnership):
     def __init__(
         self,
         super_stream: str,
@@ -28,10 +27,11 @@ class RabbitmqPricingShardOwnership(IPricingShardOwnership):
         while True:
             yield await self._changes.get()
 
-    async def complete(self) -> None:
+    async def complete(self, change: PricingShardOwnershipChange) -> None:
         # SAC側で待機しているrebalance callbackは
         # Application完了まで待たせない　← なぜ？
         # PcCではno-opで十分
+        _ = change
         return None
 
     async def on_consumer_update(
@@ -85,7 +85,7 @@ class RabbitmqPricingShardOwnership(IPricingShardOwnership):
     ) -> PricingShardId:
         # 例
         # rfq-pricing-event-3 -> 3
-        prefix = f"{self._super_stream}"
+        prefix = f"{self._super_stream}-"
 
         if not stream.startswith(prefix):
             raise ValueError(

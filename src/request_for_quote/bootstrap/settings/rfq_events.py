@@ -1,5 +1,6 @@
 from re import S
 from typing import Annotated, Literal
+from unittest.mock import Base
 
 from pydantic import BaseModel, Field
 
@@ -55,8 +56,26 @@ class RabbitMqRfqEventsSubscriberSettings(BaseModel):
     max_shards_per_worker: int = 2
 
 
+class RabbitMqSuperStreamRfqEventsSubscriberSettings(BaseModel):
+    backend: Literal["rabbitmq_super_stream"]
+
+    host: str
+    port: int = 5552
+
+    vhost: str
+    username: str
+    password: str
+
+    super_stream: str
+    consumer_group: str
+
+    partition_count: int
+
+
+
 RfqEventsSubscriberSettings = Annotated[
     KafkaRfqEventsSubscriberSettings
-    | RabbitMqRfqEventsSubscriberSettings,
+    | RabbitMqRfqEventsSubscriberSettings
+    | RabbitMqSuperStreamRfqEventsSubscriberSettings,
     Field(discriminator="backend"),
 ]

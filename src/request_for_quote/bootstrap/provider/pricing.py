@@ -7,6 +7,7 @@ from typing import AsyncGenerator
 import aio_pika
 from aiokafka import AIOKafkaConsumer, ConsumerRebalanceListener
 import redis.asyncio as redis
+from rstream import ConsumerOffsetSpecification, OffsetType, SuperStreamConsumer, amqp_decoder
 
 from request_for_quote.application.port.pricing_update_publisher import (
     IPricingUpdatePublisher,
@@ -14,23 +15,26 @@ from request_for_quote.application.port.pricing_update_publisher import (
 from request_for_quote.application.pricing.port.pricing_rfq_domain_events_subscriber import IPricingRfqDomainEventsSubscriber
 from request_for_quote.application.pricing.port.pricing_shard_resolver import IPricingShardResolver
 from request_for_quote.application.pricing.port.pricing_shared_ownership import IPricingShardOwnership
-from request_for_quote.bootstrap.settings.pricing_events import KafkaPricingEventsSettings, PricingEventsSettings, RabbitMqQuorumPricingEventsSettings
+from request_for_quote.bootstrap.settings.pricing_events import KafkaPricingEventsSettings, PricingEventsSettings, RabbitMqQuorumPricingEventsSettings, RabbitMqSuperStreamPricingEventsSettings
 from request_for_quote.bootstrap.settings.pricing_worker import (
     KafkaRfqDomainEventsSubscriberSettings,
     RedisPricingUpdatesPublisherSettings,
     ZeroMqMarketDataSettings,
 )
+from request_for_quote.bootstrap.settings.rfq_events import RabbitMqSuperStreamRfqEventsSubscriberSettings
 from request_for_quote.infrastructure.application.adapter.market_data_subscriber.zeromq_market_data_subscriber import ZeroMqMarketDataSubscriber
 from request_for_quote.infrastructure.application.adapter.pricing_update_publisher.redis_pricing_update_publisher import RedisPricingUpdatePublisher
 from request_for_quote.infrastructure.application.adapter.rfq_domain_events_subscriber.kafka.pricing_partition_router import KafkaPricingPartitionRouter
 from request_for_quote.infrastructure.application.pricing.adapter.pricing_rfq_domain_events_subscriber.kafka.pricing_rfq_domain_events_subscriber import KafkaRfqDomainEventsSubscriber
 from request_for_quote.infrastructure.application.pricing.adapter.pricing_rfq_domain_events_subscriber.rabbitmq.pricing_rfq_domain_events_subscriber import RabbitMqQuorumRfqDomainEventsSubscriber
+from request_for_quote.infrastructure.application.pricing.adapter.pricing_rfq_domain_events_subscriber.rabbitmq_super_stream.pricing_rfq_domain_events_subscriber import RabbitMqSuperStreamPricingRfqDomainEventsSubscriber
 from request_for_quote.infrastructure.application.pricing.adapter.pricing_shard_resolver.kafka.pricing_shard_resolver import KafkaPricingShardResolver
 from request_for_quote.infrastructure.application.pricing.adapter.pricing_shard_resolver.rabbitmq.pricins_shard_resolver import StablePricingShardResolver
 from request_for_quote.infrastructure.application.pricing.adapter.pricing_shared_ownership.kafka.pricing_shared_ownership import KafkaPricingShardOwnership
 from request_for_quote.infrastructure.application.pricing.adapter.pricing_shared_ownership.postgres.postgres_pricing_shared_ownership import PostgresPricingShardOwnership
+from request_for_quote.infrastructure.application.pricing.adapter.pricing_shared_ownership.rabbitmq_super_stream.rabbitmq_pricing_shard_ownership import RabbitmqSuperStreamPricingShardOwnership
 from request_for_quote.infrastructure.postgres.base import AsyncSessionMaker
-from request_for_quote.infrastructure.rabbitmq.topology import declare_pricing_topology
+from request_for_quote.infrastructure.rabbitmq.topology import bind_super_stream_pricing_topology, declare_quorum_pricing_topology
 
 
 @dataclass(frozen=True)
@@ -72,6 +76,13 @@ async def provide_pricing_events_backend(
                 provide_rabbitmq_quorum_pricing_events_backend(
                     settings=settings,
                     session_maker=session_maker,
+                )
+            ) as backend:
+                yield backend
+        case RabbitMqSuperStreamPricingEventsSettings():
+            async with (
+                provide_super_stream_pricing_events_backend(
+                    settings
                 )
             ) as backend:
                 yield backend
@@ -244,7 +255,7 @@ async def provide_rabbitmq_quorum_pricing_events_backend(
             prefetch_count=1
         )
 
-        _, queues = await declare_pricing_topology(
+        _, queues = await declare_quorum_pricing_topology(
             channel=channel,
             exchange_name=settings.exchange,
             queue_prefix=settings.queue_prefix,
@@ -284,6 +295,113 @@ async def provide_rabbitmq_quorum_pricing_events_backend(
 
     finally:
         await connection.close()
+
+
+@asynccontextmanager
+async def provide_super_stream_pricing_events_backend(
+    settings: RabbitMqSuperStreamPricingEventsSettings,
+) -> AsyncGenerator[PricingEventsBackend]:
+    # =====================================================
+    # 1. AMQP topology
+    #
+    # rfq.pricing
+    #      |
+    #      | pricing.N
+    #      v
+    # Super Stream partition N
+    # =====================================================
+
+    amqp_connection = await aio_pika.connect_robust(
+        settings.amqp_url
+    )
+
+    amqp_channel = await amqp_connection.channel()
+
+    await bind_super_stream_pricing_topology(
+        channel=amqp_channel,
+        exchange_name=settings.exchange,
+        super_stream=settings.super_stream,
+        partition_count=settings.partition_count,
+    )
+
+    # =====================================================
+    # 2. Application adapters
+    # =====================================================
+
+    ownership = RabbitmqSuperStreamPricingShardOwnership(
+        super_stream=settings.super_stream,
+        consumer_group=settings.consumer_group,
+    )
+
+    subscriber = RabbitMqSuperStreamPricingRfqDomainEventsSubscriber(
+        super_stream=settings.super_stream,
+    )
+
+    # Quorum版と同じresolver
+    resolver = StablePricingShardResolver(
+        shard_count=settings.partition_count,
+    )
+
+    # =====================================================
+    # 3. Stream Protocol Consumer
+    # =====================================================
+
+    consumer = SuperStreamConsumer(
+        host=settings.host,
+        port=settings.port,
+        vhost=settings.vhost,
+        username=settings.username,
+        password=settings.password,
+        super_stream=settings.super_stream,
+    )
+
+    await consumer.start()
+
+    properties = {
+        "single-active-consumer": "true",
+        "name": settings.consumer_group,
+        "super-stream": settings.super_stream,
+    }
+
+    await consumer.subscribe(
+        callback=subscriber.on_message,
+        decoder=amqp_decoder,
+        offset_specification=(
+            ConsumerOffsetSpecification(
+                OffsetType.FIRST,
+            )
+        ),
+        subscriber_name=settings.consumer_group,
+        properties=properties,
+        consumer_update_listener=(
+            ownership.on_consumer_update
+        ),
+    )
+
+    consumer_task = asyncio.create_task(
+        consumer.run(),
+        name="rabbitmq-super-stream-consumer",
+    )
+
+    try:
+        yield PricingEventsBackend(
+            subscriber=subscriber,
+            ownership=ownership,
+            shard_resolver=resolver,
+        )
+
+    finally:
+        consumer_task.cancel()
+
+        await asyncio.gather(
+            consumer_task,
+            return_exceptions=True,
+        )
+
+        await consumer.close()
+
+        await amqp_connection.close()
+
 
 @asynccontextmanager
 async def provide_pricing_updates_publisher(

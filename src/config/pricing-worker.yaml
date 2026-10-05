@@ -3,29 +3,50 @@ database:
   echo: false
 
 # For Kafka
-# rfq_domain_event:
-#   backend: kafka
-#   bootstrap_servers: localhost:9092
-#   topic: rfq-domain-events
-#   consumer_group: pricing-workers
-#   partition_count: 4
+rfq_domain_event:
+  backend: kafka
+  bootstrap_servers: localhost:9092
+  topic: rfq-domain-events
+  consumer_group: pricing-workers
+  partition_count: 4
 
 # For RabbitMQ
-rfq_domain_event:
-  backend: rabbitmq_quorum
+# rfq_domain_event:
+  # backend: rabbitmq_quorum
 
-  url: amqp://rfq:rfq@localhost:5672/rfq
+  # url: amqp://rfq:rfq@localhost:5672/rfq
 
-  exchange: rfq.pricing
-  queue_prefix: rfq.pricing
+  # exchange: rfq.pricing
+  # queue_prefix: rfq.pricing
 
-  shard_count: 4
+  # shard_count: 4
 
-  worker_id: pricing-worker-1
+  # worker_id: pricing-worker-1
 
-  lease_seconds: 10
-  renew_interval_seconds: 3
-  max_shards_per_worker: 4
+  # lease_seconds: 10
+  # renew_interval_seconds: 3
+  # max_shards_per_worker: 4
+
+# For RabbitMq SuperStream
+# rfq_domain_event:
+#   backend: rabbitmq_super_stream
+
+#   # topology設定用
+#   amqp_url: amqp://rfq:rfq@localhost:5672/rfq
+#   exchange: rfq.pricing
+
+#   # Stream Protocol consumer用
+#   host: localhost
+#   port: 5552
+
+#   vhost: rfq
+#   username: rfq
+#   password: rfq
+
+#   super_stream: rfq-pricing-events
+#   consumer_group: pricing-workers
+
+#   partition_count: 4
 
 market_data:
   backend: zeromq
@@ -36,3 +57,4 @@ pricing_updates:
   backend: redis
   url: redis://localhost:6379/0
   channel_prefix: pricing
+

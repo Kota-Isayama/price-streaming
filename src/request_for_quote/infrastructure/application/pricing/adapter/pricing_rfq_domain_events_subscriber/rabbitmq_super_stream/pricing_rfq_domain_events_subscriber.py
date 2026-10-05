@@ -6,6 +6,7 @@ import uuid
 from rstream import AMQPMessage, Consumer, MessageContext
 
 from request_for_quote.application.integration.events.integration_event_envelope import IntegrationEventEnvelope
+from request_for_quote.application.integration.events.rfq import RfqIntegrationEvent, RfqRegisteredIntegrationEvent
 from request_for_quote.application.pricing.model.pricing_shard import PricingShardId
 from request_for_quote.application.pricing.model.rfq_domain_event_delivery import RfqDomainEventDelivery, RfqDomainEventDeliveryId
 from request_for_quote.application.pricing.port.pricing_rfq_domain_events_subscriber import IPricingRfqDomainEventsSubscriber
@@ -26,7 +27,7 @@ class RabbitMqSuperStreamPricingRfqDomainEventsSubscriber(
         self,
         super_stream: str,
     ) -> None:
-        self.super_stream = super_stream
+        self._super_stream = super_stream
 
         self._queues: dict[
             PricingShardId,
@@ -125,31 +126,30 @@ class RabbitMqSuperStreamPricingRfqDomainEventsSubscriber(
         )
 
     def _deserialize(
-            self,
-            envelope: IntegrationEventEnvelope,
-        ) -> RfqIntegrationEvent:
-            match (
-                envelope.message_type,
-                envelope.schema_version,
-            ):
-                case ("rfq.registered", 1):
-                    return (
-                        RfqRegisteredIntegrationEvent
-                        .model_validate(
-                            {
-                                "event_id":
-                                    envelope.message_id,
-                                **envelope.payload,
-                            }
-                        )
+        self,
+        envelope: IntegrationEventEnvelope,
+    ) -> RfqIntegrationEvent:
+        match (
+            envelope.message_type,
+            envelope.schema_version,
+        ):
+            case ("rfq.registered", 1):
+                return (
+                    RfqRegisteredIntegrationEvent
+                    .model_validate(
+                        {
+                            "event_id": envelope.message_id,
+                            **envelope.payload,
+                        }
                     )
-    
-                case _:
-                    raise ValueError(
-                        "Unsupported RFQ domain event: "
-                        f"type="
-                        f"{envelope.message_type}, "
-                        f"schema_version="
-                        f"{envelope.schema_version}"
-                    )
+                )
+
+            case _:
+                raise ValueError(
+                    "Unsupported RFQ domain event: "
+                    f"type="
+                    f"{envelope.message_type}, "
+                    f"schema_version="
+                    f"{envelope.schema_version}"
+                )
                 

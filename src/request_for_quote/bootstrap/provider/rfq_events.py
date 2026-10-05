@@ -1,9 +1,11 @@
+import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
 import aio_pika
 from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
+from rstream import ConsumerOffsetSpecification, OffsetType, SuperStreamConsumer, amqp_decoder
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
@@ -13,11 +15,13 @@ from request_for_quote.application.port.integration_event_publisher import (
     IIntegrationEventPublisher,
 )
 from request_for_quote.application.port.rfq_domain_events_subscriber import IRfqDomainEventsSubscriber
+from request_for_quote.bootstrap.provider.pricing import PricingEventsBackend
 from request_for_quote.bootstrap.settings.rfq_events import (
     KafkaRfqEventsPublisherSettings,
     KafkaRfqEventsSubscriberSettings,
     RabbitMqRfqEventsPublisherSettings,
     RabbitMqRfqEventsSubscriberSettings,
+    RabbitMqSuperStreamRfqEventsSubscriberSettings,
     RfqEventsPublisherSettings,
     RfqEventsSubscriberSettings,
 )
@@ -32,9 +36,11 @@ from request_for_quote.infrastructure.application.adapter.integration_event_publ
 from request_for_quote.infrastructure.application.adapter.rfq_domain_events_subscriber.kafka.kafka_rfq_domain_events_subscriber import KafkaRfqDomainEventsSubscriber
 from request_for_quote.infrastructure.application.adapter.rfq_domain_events_subscriber.rabbitmq.rabbitmq_rfq_domain_events_publisher import RabbitmqRfqDomainEventsSubscriber
 from request_for_quote.infrastructure.application.pricing.adapter.pricing_rfq_domain_events_subscriber.rabbitmq.pricing_rfq_domain_events_subscriber import RabbitMqQuorumRfqDomainEventsSubscriber
+from request_for_quote.infrastructure.application.pricing.adapter.pricing_rfq_domain_events_subscriber.rabbitmq_super_stream.pricing_rfq_domain_events_subscriber import RabbitMqSuperStreamPricingRfqDomainEventsSubscriber
 from request_for_quote.infrastructure.application.pricing.adapter.pricing_shard_resolver.rabbitmq.pricins_shard_resolver import StablePricingShardResolver
 from request_for_quote.infrastructure.application.pricing.adapter.pricing_shared_ownership.postgres.postgres_pricing_shared_ownership import PostgresPricingShardOwnership
-from request_for_quote.infrastructure.rabbitmq.topology import declare_pricing_topology
+from request_for_quote.infrastructure.application.pricing.adapter.pricing_shared_ownership.rabbitmq_super_stream.rabbitmq_pricing_shard_ownership import RabbitmqSuperStreamPricingShardOwnership
+from request_for_quote.infrastructure.rabbitmq.topology import declare_pricing_exchange, declare_quorum_pricing_topology
 
 
 @asynccontextmanager
@@ -130,7 +136,7 @@ async def provide_rfq_events_subscriber(
                 )
 
                 queue = await channel.declare_queue(
-                    settings.queue,
+                    settings.queue_prefix,
                     durable=True,
                 )
 
