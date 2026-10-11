@@ -6,6 +6,28 @@ build-backend = "setuptools.build_meta"
 name = "request-for-quote"
 version = "0.1.0"
 requires-python = ">=3.13"
+dependencies = [
+    "aio-pika==10.0.1",
+    "aiokafka==0.14.0",
+    "asyncpg==0.31.0",
+    "fastapi==0.141.1",
+    "pydantic==2.13.5",
+    "pydantic-settings==2.15.0",
+    "python-dotenv==1.2.3",
+    "pyyaml==6.0.3",
+    "pyzmq==27.2.0",
+    "quantlib>=1.43",
+    "redis==8.1.0",
+    "rstream==1.1.0",
+    "sqlalchemy[asyncio]==2.0.52",
+    "uvicorn==0.52.4",
+    "websockets==17.1",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[dependency-groups]
+dev = [
+    "pytest==9.1.1",
+]
