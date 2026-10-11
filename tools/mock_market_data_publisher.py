@@ -1,8 +1,14 @@
 import asyncio
+import datetime
+from decimal import ROUND_HALF_UP, Decimal
 import json
+import random
+from re import S
 
 import zmq
 import zmq.asyncio
+
+from request_for_quote.infrastructure.zeromq.market.message.swap_quote_snapshot_message import SwapQuoteMessage, SwapQuoteSnapshotMessage, TenorMessage
 
 ENDPOINT = "tcp://127.0.0.1:5555"
 
@@ -17,29 +23,49 @@ async def main() -> None:
         f"publisher started: {ENDPOINT}"
     )
 
-    rate = 100
+    snapshot = SwapQuoteSnapshotMessage(
+        quote_set_id="JPY-TONA",
+        as_of=datetime.datetime.now(),
+        quotes=(
+            SwapQuoteMessage(
+                tenor=TenorMessage(value=1, unit="Y"),
+                par_rate=Decimal("1"),
+            ),
+            SwapQuoteMessage(
+                tenor=TenorMessage(value=2, unit="Y"),
+                par_rate=Decimal("1.1"),
+            ),
+            SwapQuoteMessage(
+                tenor=TenorMessage(value=3, unit="Y"),
+                par_rate=Decimal("1.3"),
+            ),
+            SwapQuoteMessage(
+                tenor=TenorMessage(value=5, unit="Y"),
+                par_rate=Decimal("2"),
+            ),
+        ),
+    )
 
     try:
         while True:
-            rate += 1
-
-            value = f"0.{rate:04d}"
-
             await socket.send_multipart(
                 [
                     b"JPY-OIS",
-                    json.dumps(
-                        {"value": value}
-                    ).encode("utf-8")
+                    snapshot.model_dump_json().encode("utf-8"),
                 ]
             )
 
             print(
-                f"[PUBLISH] "
-                f"JPY-OIS={value}"
+                "[PUBLISH] \n"
+                f"JPY-OIS={snapshot}"
             )
 
+            for quote in snapshot.quotes:
+                quote.par_rate = (quote.par_rate + Decimal(random.gauss(0, 0.1))).quantize(Decimal("0.00001"), rounding=ROUND_HALF_UP)
+
             await asyncio.sleep(2)
+
+
 
     finally:
         socket.close(linger=0)
