@@ -11,6 +11,7 @@ src/request_for_quote/application/integration/events/integration_event_envelope.
 src/request_for_quote/application/integration/events/rfq.py
 src/request_for_quote/application/market/port/curve_builder.py
 src/request_for_quote/application/market/port/mrket_curve_store.py
+src/request_for_quote/application/market/port/swap_quote_snapshot_subscriber.py
 src/request_for_quote/application/market/use_case/build_market_curve.py
 src/request_for_quote/application/market/use_case/update_market_curve.py
 src/request_for_quote/application/notification/model.py
@@ -31,6 +32,12 @@ src/request_for_quote/application/port/pricing_update_publisher.py
 src/request_for_quote/application/port/pricing_update_subscriber.py
 src/request_for_quote/application/port/rfq_domain_events_subscriber.py
 src/request_for_quote/application/pricing/session.py
+src/request_for_quote/application/pricing/dependency/__init__.py
+src/request_for_quote/application/pricing/dependency/pricing_dependency_resolver.py
+src/request_for_quote/application/pricing/model/__init__.py
+src/request_for_quote/application/pricing/model/market_configuration.py
+src/request_for_quote/application/pricing/model/pricing_dependencies.py
+src/request_for_quote/application/pricing/model/pricing_result.py
 src/request_for_quote/application/pricing/model/pricing_shard.py
 src/request_for_quote/application/pricing/model/pricing_shard_ownership_change.py
 src/request_for_quote/application/pricing/model/rfq_domain_event_delivery.py
@@ -40,6 +47,7 @@ src/request_for_quote/application/pricing/port/pricing_session_store.py
 src/request_for_quote/application/pricing/port/pricing_session_unit_of_work.py
 src/request_for_quote/application/pricing/port/pricing_shard_resolver.py
 src/request_for_quote/application/pricing/port/pricing_shared_ownership.py
+src/request_for_quote/application/pricing/port/swap_pricer.py
 src/request_for_quote/application/pricing/use_case/__init__.py
 src/request_for_quote/application/pricing/use_case/change_pricing.py
 src/request_for_quote/application/pricing/use_case/handle_market_data_update.py
@@ -56,6 +64,7 @@ src/request_for_quote/application/rfq/use_case/create_rfq.py
 src/request_for_quote/application/rfq/use_case/get_rfq.py
 src/request_for_quote/application/rfq/use_case/list_rfqs.py
 src/request_for_quote/application/rfq/use_case/stop_rfq_pricing.py
+src/request_for_quote/application/shared/error.py
 src/request_for_quote/bootstrap/processes/api.py
 src/request_for_quote/bootstrap/processes/notification_worker.py
 src/request_for_quote/bootstrap/processes/outbox_worker.py
@@ -120,7 +129,11 @@ src/request_for_quote/infrastructure/application/adapter/rfq_domain_events_subsc
 src/request_for_quote/infrastructure/application/adapter/rfq_domain_events_subscriber/kafka/pricing_partition_router.py
 src/request_for_quote/infrastructure/application/adapter/rfq_domain_events_subscriber/kafka/pricing_rebalance_listener.py
 src/request_for_quote/infrastructure/application/adapter/rfq_domain_events_subscriber/rabbitmq/rabbitmq_rfq_domain_events_publisher.py
+src/request_for_quote/infrastructure/application/market/adapter/curve_builder/quantlib/__init__.py
+src/request_for_quote/infrastructure/application/market/adapter/curve_builder/quantlib/convention_mapper.py
+src/request_for_quote/infrastructure/application/market/adapter/curve_builder/quantlib/quantlib_curve_builder.py
 src/request_for_quote/infrastructure/application/market/adapter/market_curve_store/in_memory/market_curve_store.py
+src/request_for_quote/infrastructure/application/market/adapter/swap_quote_snapshot_subscriber/zeromq/swap_quote_snapshot_subscriber.py
 src/request_for_quote/infrastructure/application/pricing/adapter/sql_alchemy_pricing_session_store.py
 src/request_for_quote/infrastructure/application/pricing/adapter/sql_alchemy_pricing_session_unit_of_work.py
 src/request_for_quote/infrastructure/application/pricing/adapter/pricing_rfq_domain_events_subscriber/kafka/pricing_rfq_domain_events_subscriber.py
@@ -131,11 +144,16 @@ src/request_for_quote/infrastructure/application/pricing/adapter/pricing_shard_r
 src/request_for_quote/infrastructure/application/pricing/adapter/pricing_shared_ownership/kafka/pricing_shared_ownership.py
 src/request_for_quote/infrastructure/application/pricing/adapter/pricing_shared_ownership/postgres/postgres_pricing_shared_ownership.py
 src/request_for_quote/infrastructure/application/pricing/adapter/pricing_shared_ownership/rabbitmq_super_stream/rabbitmq_pricing_shard_ownership.py
+src/request_for_quote/infrastructure/application/pricing/adapter/swap_pricer/quantlib/__init__.py
+src/request_for_quote/infrastructure/application/pricing/adapter/swap_pricer/quantlib/quantlib_curve_factory.py
+src/request_for_quote/infrastructure/application/pricing/adapter/swap_pricer/quantlib/quantlib_swap_factory.py
+src/request_for_quote/infrastructure/application/pricing/adapter/swap_pricer/quantlib/quantlib_swap_pricer.py
 src/request_for_quote/infrastructure/application/rfq/unit_of_work/sql_alchemy_unit_of_work.py
 src/request_for_quote/infrastructure/domain/pricing_request/repository/sql_alchemy_repository.py
 src/request_for_quote/infrastructure/domain/request_for_quote/repository/sql_alchmey_repository.py
 src/request_for_quote/infrastructure/postgres/base.py
 src/request_for_quote/infrastructure/postgres/models.py
+src/request_for_quote/infrastructure/quantlib/util.py
 src/request_for_quote/infrastructure/rabbitmq/setup_rabbitmq.py
 src/request_for_quote/infrastructure/rabbitmq/topology.py
 src/request_for_quote/infrastructure/zeromq/market/message/curve_snapshot_message.py
