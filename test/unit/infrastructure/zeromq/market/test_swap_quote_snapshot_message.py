@@ -8,7 +8,18 @@ from request_for_quote.infrastructure.zeromq.market.message.swap_quote_snapshot_
 def test_swap_quote_snapshot_message_can_be_mapped_to_domain_model() -> None:
     message = _create_swap_quote_snapshot_message()
 
-    SwapQuoteSnapshotMapper.to_domain(message=message)
+    serialized = message.model_dump_json()
+
+    restored = SwapQuoteSnapshotMessage.model_validate_json(
+        serialized
+    )
+
+    actual = SwapQuoteSnapshotMapper.to_domain(restored)
+
+    assert actual.quote_set_id.value == "JPY-TONA"
+    assert len(actual.quotes) == 4
+    assert actual.quotes[0].par_rate == Decimal("0.01")
+    assert actual.as_of.value == message.as_of
 
 
 def _create_swap_quote_snapshot_message() -> SwapQuoteSnapshotMessage:
