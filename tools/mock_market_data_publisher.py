@@ -1,9 +1,7 @@
 import asyncio
 import datetime
 from decimal import ROUND_HALF_UP, Decimal
-import json
 import random
-from re import S
 
 import zmq
 import zmq.asyncio
@@ -25,23 +23,23 @@ async def main() -> None:
 
     snapshot = SwapQuoteSnapshotMessage(
         quote_set_id="JPY-TONA",
-        as_of=datetime.datetime.now(),
+        as_of=datetime.datetime.now(tz=datetime.timezone(datetime.timedelta(hours=9))),
         quotes=(
             SwapQuoteMessage(
                 tenor=TenorMessage(value=1, unit="Y"),
-                par_rate=Decimal("1"),
+                par_rate=Decimal("0.01"),
             ),
             SwapQuoteMessage(
                 tenor=TenorMessage(value=2, unit="Y"),
-                par_rate=Decimal("1.1"),
+                par_rate=Decimal("0.011"),
             ),
             SwapQuoteMessage(
                 tenor=TenorMessage(value=3, unit="Y"),
-                par_rate=Decimal("1.3"),
+                par_rate=Decimal("0.013"),
             ),
             SwapQuoteMessage(
                 tenor=TenorMessage(value=5, unit="Y"),
-                par_rate=Decimal("2"),
+                par_rate=Decimal("0.02"),
             ),
         ),
     )
@@ -61,7 +59,8 @@ async def main() -> None:
             )
 
             for quote in snapshot.quotes:
-                quote.par_rate = (quote.par_rate + Decimal(random.gauss(0, 0.1))).quantize(Decimal("0.00001"), rounding=ROUND_HALF_UP)
+                quote.par_rate = (quote.par_rate + Decimal(random.gauss(0, 0.001))).quantize(Decimal("0.0000001"), rounding=ROUND_HALF_UP)
+            snapshot.as_of = datetime.datetime.now(tz=datetime.timezone(datetime.timedelta(hours=9)))
 
             await asyncio.sleep(2)
 
