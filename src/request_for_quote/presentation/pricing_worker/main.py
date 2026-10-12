@@ -87,6 +87,8 @@ import redis.asyncio as redis
 from request_for_quote.application.integration.events.rfq import (
     RfqRegisteredIntegrationEvent,
 )
+from request_for_quote.application.market.port.swap_quote_snapshot_subscriber import ISwapQuoteSnapshotSubscriber
+from request_for_quote.application.market.use_case.build_market_curve import BuildMarketCurveUseCase
 from request_for_quote.application.port.market_data_subscriber import IMarketDataSubscriber
 from request_for_quote.application.port.rfq_domain_events_subscriber import (
     IRfqDomainEventsSubscriber,
@@ -106,9 +108,14 @@ from request_for_quote.application.pricing.use_case.release_pricing_shard import
 from request_for_quote.application.pricing.use_case.restore_pricing_shard import RestorePricingShardUseCase
 from request_for_quote.bootstrap.processes.pricing_worker import bootstrap_pricing_worker
 from request_for_quote.bootstrap.settings.pricing_worker import PricingWorkerSettings
+from request_for_quote.domain.market.identifier import CurveId
 from request_for_quote.domain.market.market import MarketState
 from request_for_quote.domain.pricing.swap_pricer import SwapPricer
 
+from request_for_quote.domain.product.interest_rate.common import DayCountFraction
+from request_for_quote.domain.product.interest_rate.convention import BusinessCalendarId, BusinessDayConvention, SwapConvention
+from request_for_quote.domain.product.interest_rate.rate_specification import FloatingRateIndex
+from request_for_quote.domain.product.interest_rate.schedule import PeriodFrequency
 from request_for_quote.infrastructure.application.adapter.market_data_subscriber.zeromq_market_data_subscriber import (
     ZeroMqMarketDataSubscriber,
 )
@@ -122,6 +129,8 @@ from request_for_quote.infrastructure.application.adapter.pricing_update_publish
 from request_for_quote.infrastructure.application.adapter.rfq_domain_events_subscriber.kafka.kafka_rfq_domain_events_subscriber import KafkaRfqDomainEventsSubscriber
 from request_for_quote.infrastructure.application.adapter.rfq_domain_events_subscriber.kafka.pricing_partition_router import KafkaPricingPartitionRouter
 from request_for_quote.infrastructure.application.adapter.rfq_domain_events_subscriber.kafka.pricing_rebalance_listener import PricingRebalanceListener
+from request_for_quote.infrastructure.application.market.adapter.curve_builder.quantlib.quantlib_curve_builder import QuantLibCurveBuilder
+from request_for_quote.infrastructure.application.market.adapter.market_curve_store.in_memory.market_curve_store import InMemoryMarketCurveStore
 from request_for_quote.infrastructure.application.pricing.adapter.sql_alchemy_pricing_session_unit_of_work import (
     SqlAlchemyPricingSessionUnitOfWork,
 )
@@ -131,14 +140,34 @@ from request_for_quote.infrastructure.postgres.base import (
 )
 
 
+curve_id = CurveId("JPY-OIS")
+
+convension = SwapConvention(
+    floating_rate_index=FloatingRateIndex("JPY-TONA"),
+    fixed_leg_frequency=PeriodFrequency.ANNUAL,
+    fixed_leg_day_count=DayCountFraction.ACT_365_FIXED,
+    business_calendar_id=BusinessCalendarId("JP"),
+    business_day_convention=BusinessDayConvention.MODIFIED_FOLLOWING,
+    settlement_days=2,
+)
+
+
 async def consume_market_data(
-    subscriber: IMarketDataSubscriber,
-    use_case: HandleMarketDataUpdateUseCase,
+    subscriber: ISwapQuoteSnapshotSubscriber,
+    build_curve: BuildMarketCurveUseCase,
 ) -> None:
-    async for update in subscriber.subscribe():
-        await use_case.execute(
-            market_data_id=update.market_data_id,
-            value=update.value,
+    async for snapshot in subscriber.subscribe():
+        curve = build_curve.execute(
+            curve_id=curve_id,
+            snapshot=snapshot,
+            convention=convension,
+        )
+
+        print(
+            "[CURVE BUILT] "
+            f"curve_id={curve.curve_id.value} "
+            f"as_of={curve.as_of.value} "
+            f"nodes={len(curve.nodes)}"
         )
 
 
@@ -306,6 +335,7 @@ async def main() -> None:
         settings=settings
     ) as worker_container:
 
+        curve_store = InMemoryMarketCurveStore()
         market_state = MarketState()
 
         # UoWはoperationごとに作る。
@@ -335,19 +365,9 @@ async def main() -> None:
             )
         )
 
-        handle_market_data_update = (
-            HandleMarketDataUpdateUseCase(
-                session_store=(
-                    worker_container
-                    .session_registry
-                ),
-                market_state=market_state,
-                pricer=pricer,
-                pricing_update_publisher=(
-                    worker_container
-                    .pricing_updates
-                ),
-            )
+        build_curve = BuildMarketCurveUseCase(
+            curve_builder=QuantLibCurveBuilder(),
+            curve_store=curve_store,
         )
 
         restore_pricing_shard = (
@@ -385,13 +405,8 @@ async def main() -> None:
             # ZeroMQ Market Dataを永続的にconsume。
             tg.create_task(
                 consume_market_data(
-                    subscriber=(
-                        worker_container
-                        .market_data_subscriber
-                    ),
-                    use_case=(
-                        handle_market_data_update
-                    ),
+                    subscriber=worker_container.swap_quote_snapshot_subscriber,
+                    build_curve=build_curve,
                 ),
                 name="market-data-consumer",
             )

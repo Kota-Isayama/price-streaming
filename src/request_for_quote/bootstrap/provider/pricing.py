@@ -8,7 +8,10 @@ import aio_pika
 from aiokafka import AIOKafkaConsumer, ConsumerRebalanceListener
 import redis.asyncio as redis
 from rstream import ConsumerOffsetSpecification, OffsetType, SuperStreamConsumer, amqp_decoder
+import zmq
+import zmq.asyncio
 
+from request_for_quote.application.market.port.swap_quote_snapshot_subscriber import ISwapQuoteSnapshotSubscriber
 from request_for_quote.application.port.pricing_update_publisher import (
     IPricingUpdatePublisher,
 )
@@ -25,6 +28,7 @@ from request_for_quote.bootstrap.settings.rfq_events import RabbitMqSuperStreamR
 from request_for_quote.infrastructure.application.adapter.market_data_subscriber.zeromq_market_data_subscriber import ZeroMqMarketDataSubscriber
 from request_for_quote.infrastructure.application.adapter.pricing_update_publisher.redis_pricing_update_publisher import RedisPricingUpdatePublisher
 from request_for_quote.infrastructure.application.adapter.rfq_domain_events_subscriber.kafka.pricing_partition_router import KafkaPricingPartitionRouter
+from request_for_quote.infrastructure.application.market.adapter.swap_quote_snapshot_subscriber.zeromq.swap_quote_snapshot_subscriber import ZeroMqSwapQuoteSnapshotSubscriber
 from request_for_quote.infrastructure.application.pricing.adapter.pricing_rfq_domain_events_subscriber.kafka.pricing_rfq_domain_events_subscriber import KafkaRfqDomainEventsSubscriber
 from request_for_quote.infrastructure.application.pricing.adapter.pricing_rfq_domain_events_subscriber.rabbitmq.pricing_rfq_domain_events_subscriber import RabbitMqQuorumRfqDomainEventsSubscriber
 from request_for_quote.infrastructure.application.pricing.adapter.pricing_rfq_domain_events_subscriber.rabbitmq_super_stream.pricing_rfq_domain_events_subscriber import RabbitMqSuperStreamPricingRfqDomainEventsSubscriber
@@ -433,3 +437,23 @@ async def provide_market_data_subscriber(
         yield subscriber
     finally:
         subscriber.close()
+
+
+@asynccontextmanager
+async def provide_swap_quote_snapshot_subscriber(
+    settings: ZeroMqMarketDataSettings,
+) -> AsyncGenerator[ISwapQuoteSnapshotSubscriber]:
+    context = zmq.asyncio.Context.instance()
+    socket = context.socket(zmq.SUB)
+
+    try:
+        socket.connect(settings.endpoint)
+        subscriber = ZeroMqSwapQuoteSnapshotSubscriber(
+            socket=socket,
+            topics={settings.topic}
+        )
+
+        yield subscriber
+
+    finally:
+        socket.close(linger=0)

@@ -6,6 +6,7 @@ from typing import AsyncGenerator
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from request_for_quote.application.market.port.swap_quote_snapshot_subscriber import ISwapQuoteSnapshotSubscriber
 from request_for_quote.application.port.market_data_subscriber import IMarketDataSubscriber
 from request_for_quote.application.port.pricing_session_registry import IPricingSessionRegistry
 from request_for_quote.application.port.pricing_update_publisher import IPricingUpdatePublisher
@@ -19,6 +20,7 @@ from request_for_quote.bootstrap.provider.pricing import (
     provide_market_data_subscriber,
     provide_pricing_events_backend,
     provide_pricing_updates_publisher,
+    provide_swap_quote_snapshot_subscriber,
 )
 from request_for_quote.bootstrap.settings.pricing_worker import (
     PricingWorkerSettings,
@@ -33,7 +35,8 @@ from request_for_quote.infrastructure.application.pricing.adapter.sql_alchemy_pr
 class PricingWorkerContainer:
     session_maker: async_sessionmaker[AsyncSession]
 
-    market_data_subscriber: IMarketDataSubscriber
+    # market_data_subscriber: IMarketDataSubscriber
+    swap_quote_snapshot_subscriber: ISwapQuoteSnapshotSubscriber
     pricing_updates: IPricingUpdatePublisher
 
     session_registry: IPricingSessionRegistry
@@ -84,10 +87,10 @@ async def bootstrap_pricing_worker(
             )
         )
 
-        market_data_subscriber = await stack.enter_async_context(
-            provide_market_data_subscriber(
+        swap_quote_snapshot_subscriber = await stack.enter_async_context(
+            provide_swap_quote_snapshot_subscriber(
                 settings=settings.market_data,
-            )
+            ),
         )
 
         pricing_updates = (
@@ -101,9 +104,7 @@ async def bootstrap_pricing_worker(
         yield PricingWorkerContainer(
             session_maker=session_maker,
 
-            market_data_subscriber=(
-                market_data_subscriber
-            ),
+            swap_quote_snapshot_subscriber=swap_quote_snapshot_subscriber,
             pricing_updates=pricing_updates,
             session_registry=session_registry,
 
