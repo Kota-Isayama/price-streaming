@@ -25,9 +25,7 @@ class PricingDependencyResolver:
         self,
         *,
         product: InterestRateSwap,
-        market_data_configuration: (
-            MarketConfiguration
-        ),
+        market_data_configuration: MarketConfiguration,
     ) -> PricingDependencies:
         discount_curve = (
             self._curve_provider.get(
