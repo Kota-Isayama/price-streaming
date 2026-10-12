@@ -10,7 +10,7 @@ def test_at_least_one_quote_target_must_be_required() -> None:
         )
 
 
-def test_quote_targets_must_be_duplicated() -> None:
+def test_quote_targets_must_not_be_duplicated() -> None:
     with pytest.raises(InvalidQuoteSpecification):
         QuoteSpecification(
             targets=(
