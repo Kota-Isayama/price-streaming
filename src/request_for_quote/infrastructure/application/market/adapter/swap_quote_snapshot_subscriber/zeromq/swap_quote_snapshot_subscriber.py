@@ -13,13 +13,10 @@ from request_for_quote.infrastructure.zeromq.market.message.swap_quote_snapshot_
 class ZeroMqSwapQuoteSnapshotSubscriber(ISwapQuoteSnapshotSubscriber):
     def __init__(
         self,
-        endpoint: str,
+        socket: zmq.asyncio.Socket,
         topics: set[str],
     ) -> None:
-        context = zmq.asyncio.Context.instance()
-
-        self._socket = context.socket(zmq.SUB)
-        self._socket.connect(endpoint)
+        self._socket = socket
 
         for topic in topics:
             self._socket.setsockopt_string(
@@ -38,7 +35,7 @@ class ZeroMqSwapQuoteSnapshotSubscriber(ISwapQuoteSnapshotSubscriber):
             except Exception:
                 msg = f"[MARKET] Unsupported Message format: {payload_bytes}"
                 print(msg)
-                return
+                continue
 
             yield SwapQuoteSnapshotMapper.to_domain(message)
 
