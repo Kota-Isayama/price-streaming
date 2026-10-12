@@ -16,6 +16,7 @@ async def test_skip_invalid_message() -> None:
     socket.recv_multipart = AsyncMock(
         side_effect=[
             (b"JPY-OIS", b"invalid-json"),
+            (b"JPY-OIS", _create_swap_quote_snapshot_without_timezone_message().model_dump_json().encode("utf-8")),
             (b"JPY-OIS", _create_swap_quote_snapshot_message().model_dump_json().encode("utf-8"))
         ]
     )
@@ -41,6 +42,31 @@ def _create_swap_quote_snapshot_message() -> SwapQuoteSnapshotMessage:
     return SwapQuoteSnapshotMessage(
         quote_set_id="JPY-TONA",
         as_of=datetime.datetime.now(tz=datetime.timezone(datetime.timedelta(hours=9))),
+        quotes=(
+            SwapQuoteMessage(
+                tenor=TenorMessage(value=1, unit="Y"),
+                par_rate=Decimal("0.01"),
+            ),
+            SwapQuoteMessage(
+                tenor=TenorMessage(value=2, unit="Y"),
+                par_rate=Decimal("0.011"),
+            ),
+            SwapQuoteMessage(
+                tenor=TenorMessage(value=3, unit="Y"),
+                par_rate=Decimal("0.013"),
+            ),
+            SwapQuoteMessage(
+                tenor=TenorMessage(value=5, unit="Y"),
+                par_rate=Decimal("0.02"),
+            ),
+        ),
+    )
+
+
+def _create_swap_quote_snapshot_without_timezone_message() -> SwapQuoteSnapshotMessage:
+    return SwapQuoteSnapshotMessage(
+        quote_set_id="JPY-TONA",
+        as_of=datetime.datetime.now(),
         quotes=(
             SwapQuoteMessage(
                 tenor=TenorMessage(value=1, unit="Y"),
